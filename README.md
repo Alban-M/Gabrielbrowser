@@ -1,20 +1,39 @@
 # Gabriel
 
-A local-first API workbench built around one loop:
+**From real traffic to secure, repeatable API tests — in minutes.**
+
+Gabriel records what your application actually sends, turns any of it into an
+editable request with the credentials stripped out, and replays it still
+authenticated. The same file then runs in CI.
 
 ```text
 browse → capture → promote → replay (with the session intact) → diff
 ```
 
+Other tools ask you to rebuild a request you have already made. This one starts
+from the request itself — which is why the promotion step, not the protocol
+list, is the thing worth having.
+
 The [strategy document](docs/gabriel-browser-strategy.md) argues that the defensible
 part of a "developer browser" is not the browser — it is the seam between the
 browser, the API bench, and the proxy. This repository builds that seam, headless,
-as the engine a browser shell would later sit on top of.
+as the engine a desktop workbench would later sit on top of.
 
 ## Install
 
-No published binaries yet — the release workflow builds them on a tag, and the
-first tag has not been cut. Until then, from a clone:
+Once a release is published, macOS and Linux:
+
+```bash
+curl -fsSL <release-base>/install.sh | sh
+```
+
+It works out the platform, verifies the SHA-256 before copying anything, clears
+the macOS quarantine flag, and refuses to install a download it cannot verify.
+`GABRIEL_VERSION` and `GABRIEL_INSTALL_DIR` override the defaults. On Windows,
+take the `.zip` and put `gabriel.exe` on your PATH.
+
+No release exists yet — the first tag has not been cut. Until then, from a
+clone:
 
 ```bash
 cargo install --path crates/gabriel-cli
@@ -26,9 +45,8 @@ Or straight from the repository, which needs access while it is private:
 cargo install --git https://github.com/Alban-M/Gabrielbrowser gabriel-cli
 ```
 
-Once a release exists, downloads will be attached to it with SHA-256 sums, and
-macOS will need the quarantine flag cleared (`xattr -d com.apple.quarantine
-gabriel`) because the binaries are unsigned.
+Binaries are unsigned, so macOS will warn about an unidentified developer until
+they are notarized.
 
 Rust 1.85 or newer, for edition 2024.
 
