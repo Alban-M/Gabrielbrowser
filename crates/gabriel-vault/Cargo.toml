@@ -24,3 +24,6 @@ thiserror = "2.0.19"
 # An unused-dependency tool will suggest removing this. Do not.
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.1", features = ["keychain"] }
+
+[dev-dependencies]
+gabriel-testkit.workspace = true

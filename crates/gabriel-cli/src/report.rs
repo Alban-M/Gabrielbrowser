@@ -334,7 +334,10 @@ footer {{ margin-top: 2rem; color: var(--muted); font-size: .85rem; }}
         env = report
             .environment
             .as_ref()
-            .map(|e| format!("environment <b>{}</b> · ", html(e)))
+            // Redacted like every other rendered field. An environment name is
+            // not usually a secret, but "not usually" is not an invariant, and
+            // this was the one field in either report that skipped the step.
+            .map(|e| format!("environment <b>{}</b> · ", html(&redactor.apply(e))))
             .unwrap_or_default(),
         started = html(&gabriel_core::format_iso8601(report.started_ms)),
         total = report.total(),
@@ -693,5 +696,88 @@ mod tests {
             "{xml}"
         );
         assert!(to_html(&report, &plain()).contains("</html>"));
+    }
+}
+
+/// Every report surface, checked against the same invariant.
+///
+/// Reports are written to a file and then attached to a CI run, a pull request
+/// or a ticket — so a credential that reaches one travels further than anything
+/// printed to a terminal. Each field a report renders gets a canary, because a
+/// report is assembled from several of them and it only takes one.
+#[cfg(test)]
+mod no_secret_leaves_the_process {
+    use super::*;
+    use gabriel_testkit::{assert_no_secret, assert_no_secret_of, canary};
+
+    /// A run in which a secret has reached every field a report can render:
+    /// the URL, the assertion text, the observed value, and the error.
+    fn a_run_full_of_secrets() -> RunReport {
+        RunReport {
+            collection: format!("collection-{}", canary::PLAIN_SECRET),
+            environment: Some(format!("env-{}", canary::PASSWORD)),
+            started_ms: 1_700_000_000_000,
+            cases: vec![
+                CaseResult {
+                    id: format!("users/{}", canary::PLAIN_SECRET),
+                    method: "POST".into(),
+                    url: format!("https://api.test/session?token={}", canary::OPAQUE_TOKEN),
+                    status: Some(401),
+                    duration_ms: 12,
+                    outcome: CaseOutcome::Failed,
+                    assertions: vec![AssertionLine {
+                        description: format!("header Authorization == Bearer {}", canary::JWT),
+                        passed: false,
+                        actual: format!("got cookie {}", canary::COOKIE_VALUE),
+                    }],
+                },
+                CaseResult {
+                    id: "send".into(),
+                    method: "GET".into(),
+                    url: "https://api.test/send".into(),
+                    status: None,
+                    duration_ms: 1,
+                    outcome: CaseOutcome::Errored(format!(
+                        "connection refused while sending {}",
+                        canary::OPAQUE_TOKEN
+                    )),
+                    assertions: vec![],
+                },
+            ],
+        }
+    }
+
+    /// The redactor a real run holds: every secret the resolver actually used.
+    fn knows_every_secret() -> Redactor {
+        Redactor::new(canary::ALL.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn junit_xml_carries_no_secret() {
+        let xml = to_junit(&a_run_full_of_secrets(), &knows_every_secret());
+        assert_no_secret("JUnit XML", &xml);
+    }
+
+    #[test]
+    fn the_html_report_carries_no_secret() {
+        let page = to_html(&a_run_full_of_secrets(), &knows_every_secret());
+        assert_no_secret("HTML report", &page);
+    }
+
+    /// Escaping and redaction are separate steps, and a value can be escaped
+    /// into a form the redactor no longer recognises. A secret containing XML
+    /// and HTML metacharacters exercises the seam between them.
+    #[test]
+    fn escaping_does_not_smuggle_a_secret_past_redaction() {
+        let awkward = "a<b&c\"d'e-secret";
+        let mut report = a_run_full_of_secrets();
+        report.cases[0].assertions[0].actual = format!("value was {awkward}");
+        // Everything the redactor knows in a real run, plus the awkward value.
+        let mut secrets: Vec<String> = canary::ALL.iter().map(|s| s.to_string()).collect();
+        secrets.push(awkward.to_string());
+        let redactor = Redactor::new(secrets);
+
+        assert_no_secret_of("JUnit XML", &to_junit(&report, &redactor), &[awkward]);
+        assert_no_secret_of("HTML report", &to_html(&report, &redactor), &[awkward]);
     }
 }

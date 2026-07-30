@@ -14,6 +14,7 @@ gabriel-collection = { version = "0.1.0-preview.1", path = "crates/gabriel-colle
 gabriel-vault = { version = "0.1.0-preview.1", path = "crates/gabriel-vault" }
 gabriel-engine = { version = "0.1.0-preview.1", path = "crates/gabriel-engine" }
 gabriel-proxy = { version = "0.1.0-preview.1", path = "crates/gabriel-proxy" }
+gabriel-testkit = { version = "0.1.0-preview.1", path = "crates/gabriel-testkit" }
 
 [profile.release]
 lto = "thin"

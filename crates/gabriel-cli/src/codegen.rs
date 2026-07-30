@@ -251,3 +251,37 @@ mod tests {
         assert!(!to_curl(&req, &plain(), false).contains("--data-raw"));
     }
 }
+
+/// Generated curl commands, checked against the same invariant.
+///
+/// A curl command is made to be pasted — into a ticket, a chat, a runbook —
+/// so it is the surface most likely to be shared deliberately.
+#[cfg(test)]
+mod no_secret_leaves_the_process {
+    use super::*;
+    use gabriel_testkit::{assert_no_secret, canary};
+
+    fn a_request_full_of_secrets() -> SentRequest {
+        SentRequest {
+            method: "POST".into(),
+            url: format!("https://api.test/login?key={}", canary::OPAQUE_TOKEN),
+            headers: vec![
+                ("Authorization".into(), format!("Bearer {}", canary::JWT)),
+                ("Cookie".into(), format!("session={}", canary::COOKIE_VALUE)),
+            ],
+            body: Some(format!("password={}", canary::PASSWORD)),
+        }
+    }
+
+    fn knows_every_secret() -> Redactor {
+        Redactor::new(canary::ALL.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn a_generated_curl_command_carries_no_secret() {
+        let command = to_curl(&a_request_full_of_secrets(), &knows_every_secret(), true);
+        assert_no_secret("curl codegen (multiline)", &command);
+        let command = to_curl(&a_request_full_of_secrets(), &knows_every_secret(), false);
+        assert_no_secret("curl codegen (one line)", &command);
+    }
+}

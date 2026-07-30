@@ -1,0 +1,11 @@
+[package]
+name = "gabriel-testkit"
+version.workspace = true
+edition = "2024"
+description = "Test-only helpers asserting that no secret leaves the process"
+license.workspace = true
+repository.workspace = true
+# Test scaffolding, not part of the product.
+publish = false
+
+[dependencies]

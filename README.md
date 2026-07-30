@@ -201,6 +201,25 @@ sequence in any of them can erase Gabriel's output and replace it with something
 convincing — so control bytes become caret notation (`^[`) when stdout is a
 terminal. Pipes still receive the exact bytes, because `--quiet | jq` has to.
 
+**No secret leaves the process, and every output surface proves it.**
+Gabriel holds credentials on behalf of someone else, so anything that emits
+text is somewhere one can escape. Each surface used to carry whatever assertion
+its author thought of, which is how a surface added later ends up with none.
+There is now one shared invariant: `gabriel-testkit` holds a set of canary
+secrets and a single `assert_no_secret(surface, output)`, and the terminal,
+JUnit XML, HTML reports, generated curl commands, error messages, the support
+bundle and the vault file on disk are each asserted against it.
+
+The canaries come in two shapes on purpose. Some are long and
+credential-looking, which a pattern scrubber catches on its own; others are
+short, lowercase and indistinguishable from prose, which only a surface that
+*knows* which values are secret can redact. A surface that passes the first and
+fails the second is pattern-matching where it should be remembering.
+
+`gabriel har export` is the one deliberate exception — a HAR is a faithful
+record of traffic, which is what makes it interoperable and replayable — and
+there is a test that says so, so it stays a decision rather than an oversight.
+
 **Request paths cannot escape the collection.** `promote --to ../../elsewhere`
 is refused rather than obeyed.
 
@@ -267,7 +286,13 @@ cargo test
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ./installer-tests/run.sh        # needs cargo build --release first
+./scripts/scan-secrets.sh README.md CHANGELOG.md docs/*.md
 ```
+
+A new output surface is expected to bring a `no_secret_leaves_the_process`
+module with it: feed the canaries from `gabriel-testkit` into every field the
+surface renders, and assert on what comes out. Published prose has no canary to
+inject, so `scan-secrets.sh` checks it by shape instead.
 
 The installer has its own suite because it is a trust boundary — the one piece
 of software someone runs before they have any reason to trust it, usually piped

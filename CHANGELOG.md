@@ -61,6 +61,10 @@ answers exist, the release becomes 0.1.0.
 - Runtime files (vault, sessions, captures, CA key) are `0600` on Unix.
 - The feedback bundle is assembled from an allow-list of safe fields, so the
   vault, session cookies, the CA key and captured traffic cannot reach it.
+- **No secret leaves the process**, asserted the same way on every output
+  surface: the terminal, JUnit XML, HTML reports, generated curl commands,
+  error messages, the support bundle and the vault file on disk. `gabriel har
+  export` is the one deliberate exception, and there is a test saying so.
 
 ### Known limits
 

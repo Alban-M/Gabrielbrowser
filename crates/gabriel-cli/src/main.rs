@@ -456,6 +456,18 @@ fn collect_capture_summary(collection: &Collection) -> Option<feedback::CaptureS
     Some(summary)
 }
 
+/// Render an error for display, redacted.
+///
+/// Error text quotes whatever it failed on, and what a request failed on is
+/// routinely a URL the resolver filled in from the vault — `reqwest` puts the
+/// URL it could not reach into its message. So an error is an output surface
+/// like any other and goes through the same redactor. The caller is still
+/// responsible for defusing it with `Style::safe`, because a server chooses
+/// what a failure says.
+fn redacted_error(error: &anyhow::Error, secrets: Vec<String>) -> String {
+    Redactor::new(secrets).apply(&format!("{error:#}"))
+}
+
 /// The subcommand that was run, for the error log. Matched rather than taken
 /// from argv, because argv holds values — `gabriel vault set token <secret>`.
 fn command_label(command: &Command) -> &'static str {
@@ -1578,7 +1590,8 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
         let outcome = match attempt {
             Ok(outcome) => outcome,
             Err(error) if args.all => {
-                eprintln!("{} {error:#}", style.red("error:"));
+                let message = redacted_error(&error, resolver.used_secrets());
+                eprintln!("{} {}", style.red("error:"), style.safe(&message));
                 if wants_report {
                     cases.push(report::CaseResult {
                         id: entry.id.clone(),
@@ -1586,7 +1599,7 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                         url: spec.url.clone(),
                         status: None,
                         duration_ms: 0,
-                        outcome: report::CaseOutcome::Errored(format!("{error:#}")),
+                        outcome: report::CaseOutcome::Errored(message),
                         assertions: Vec::new(),
                     });
                 }
@@ -1594,7 +1607,9 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                 all_passed = false;
                 continue;
             }
-            Err(error) => return Err(error),
+            // Flattened to a redacted string on the way out, because the
+            // top-level handler prints it and has no resolver to redact with.
+            Err(error) => bail!("{}", redacted_error(&error, resolver.used_secrets())),
         };
 
         if wants_report {
@@ -1907,4 +1922,52 @@ fn vault_command(command: VaultCommand, start_dir: &Path, style: &Style) -> Resu
         }
     }
     Ok(Outcome::Success)
+}
+
+/// Error text, checked against the same invariant as every other surface.
+#[cfg(test)]
+mod no_secret_leaves_the_process {
+    use super::*;
+    use gabriel_testkit::{assert_no_secret, canary};
+
+    #[test]
+    fn an_error_quoting_a_resolved_url_carries_no_secret() {
+        // What reqwest actually produces when a request with a secret in the
+        // query string cannot be sent.
+        let error = anyhow::anyhow!(
+            "error sending request for url (https://api.test/v1?key={})",
+            canary::OPAQUE_TOKEN
+        )
+        .context(format!("running `login` with {}", canary::PLAIN_SECRET));
+
+        let secrets = canary::ALL.iter().map(|s| s.to_string()).collect();
+        assert_no_secret("error message", &redacted_error(&error, secrets));
+    }
+
+    #[test]
+    fn an_error_with_no_secrets_to_redact_is_unchanged() {
+        let error = anyhow::anyhow!("connection refused");
+        assert_eq!(redacted_error(&error, Vec::new()), "connection refused");
+    }
+
+    /// Every command name is distinct, so an error logged against one is not
+    /// filed under another.
+    #[test]
+    fn command_labels_are_unique() {
+        use std::collections::BTreeSet;
+        let labels = [
+            command_label(&Command::Ls),
+            command_label(&Command::Env),
+            command_label(&Command::Doctor {
+                json: false,
+                port: 0,
+            }),
+            command_label(&Command::Feedback {
+                out: PathBuf::new(),
+                port: 0,
+            }),
+        ];
+        let unique: BTreeSet<_> = labels.iter().collect();
+        assert_eq!(unique.len(), labels.len(), "{labels:?}");
+    }
 }

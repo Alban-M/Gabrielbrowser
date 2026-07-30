@@ -397,15 +397,22 @@ mod tests {
         assert_eq!(vault.get("api_token"), Some("sk-live-abc"));
     }
 
+    /// The vault file is an output surface too — it is the one that persists.
     #[test]
     fn the_file_on_disk_reveals_nothing() {
+        use gabriel_testkit::{assert_no_secret, canary};
+
         let path = temp_path("vault.json");
         let mut vault = Vault::open(&path, &passphrase()).unwrap();
-        vault.set("api_token", "sk-live-abc");
+        for (i, secret) in canary::ALL.iter().enumerate() {
+            vault.set(format!("api_token_{i}"), *secret);
+        }
         vault.save().unwrap();
 
         let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(!raw.contains("sk-live-abc"), "plaintext on disk:\n{raw}");
+        assert_no_secret("the vault file on disk", &raw);
+        // Names are encrypted with the values: which secrets exist is itself
+        // worth knowing to an attacker who has the file.
         assert!(!raw.contains("api_token"), "secret names leak:\n{raw}");
     }
 

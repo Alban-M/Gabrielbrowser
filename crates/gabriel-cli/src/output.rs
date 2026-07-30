@@ -647,3 +647,84 @@ mod tests {
         assert_eq!(format_duration(90_000_000), "1d 1h");
     }
 }
+
+/// The terminal, checked against the same invariant as every other surface.
+///
+/// Terminal output is the surface people screenshot and paste into chat, so a
+/// credential reaching it travels about as far as one in a report.
+#[cfg(test)]
+mod no_secret_leaves_the_process {
+    use super::*;
+    use gabriel_core::model::FieldMap;
+    use gabriel_core::response::Timings;
+    use gabriel_testkit::{assert_no_secret, canary};
+
+    /// A response that has put a secret into every field the printer renders:
+    /// the URL, a request header, the request body, a response header, the
+    /// response body, and a captured variable.
+    fn an_outcome_full_of_secrets() -> gabriel_engine::RunOutcome {
+        use gabriel_engine::{RunOutcome, SentRequest};
+
+        let mut headers = FieldMap::default();
+        headers.set("Content-Type", "application/json");
+        headers.set("X-Reflected", canary::OPAQUE_TOKEN);
+        headers.set("Set-Cookie", format!("session={}", canary::COOKIE_VALUE));
+
+        RunOutcome {
+            sent: SentRequest {
+                method: "POST".into(),
+                url: format!("https://api.test/?token={}", canary::OPAQUE_TOKEN),
+                headers: vec![
+                    ("Authorization".into(), format!("Bearer {}", canary::JWT)),
+                    ("X-Password".into(), canary::PASSWORD.into()),
+                ],
+                body: Some(format!("{{\"pass\":\"{}\"}}", canary::PLAIN_SECRET)),
+            },
+            response: ExecutedResponse {
+                status: 200,
+                status_text: "OK".into(),
+                http_version: "HTTP/2".into(),
+                headers,
+                body: format!("{{\"echo\":\"{}\"}}", canary::PLAIN_SECRET).into_bytes(),
+                timings: Timings::default(),
+                final_url: format!("https://api.test/done?t={}", canary::OPAQUE_TOKEN),
+            },
+            assertions: Vec::new(),
+            captured: vec![("token".into(), canary::OPAQUE_TOKEN.into())],
+            redirects: Vec::new(),
+        }
+    }
+
+    fn printed(verbose: bool, tty: bool) -> String {
+        let style = Style { enabled: tty, tty };
+        let redactor = Redactor::new(canary::ALL.iter().map(|s| s.to_string()).collect());
+        let mut out = Vec::new();
+        write_run(
+            &mut out,
+            &an_outcome_full_of_secrets(),
+            &style,
+            &redactor,
+            verbose,
+            10_000,
+        )
+        .unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn the_terminal_carries_no_secret() {
+        assert_no_secret("terminal output (verbose, tty)", &printed(true, true));
+    }
+
+    #[test]
+    fn the_quiet_path_carries_no_secret() {
+        assert_no_secret("terminal output (quiet)", &printed(false, false));
+    }
+
+    /// A pipe gets byte-exact output so `--quiet | jq` works, which means the
+    /// escape-defusing step is skipped. Redaction must not be skipped with it.
+    #[test]
+    fn a_pipe_carries_no_secret_either() {
+        assert_no_secret("piped output", &printed(true, false));
+    }
+}

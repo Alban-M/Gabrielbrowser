@@ -1012,6 +1012,7 @@ dependencies = [
  "gabriel-core",
  "gabriel-engine",
  "gabriel-proxy",
+ "gabriel-testkit",
  "gabriel-vault",
  "serde_json",
  "tokio",
@@ -1034,6 +1035,7 @@ name = "gabriel-core"
 version = "0.1.0-preview.1"
 dependencies = [
  "base64 0.23.0",
+ "gabriel-testkit",
  "rand",
  "serde",
  "serde_json",
@@ -1049,6 +1051,7 @@ dependencies = [
  "base64 0.23.0",
  "futures-util",
  "gabriel-core",
+ "gabriel-testkit",
  "rand",
  "rcgen",
  "reqwest",
@@ -1070,6 +1073,7 @@ dependencies = [
  "futures-util",
  "gabriel-core",
  "gabriel-engine",
+ "gabriel-testkit",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -1085,6 +1089,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gabriel-testkit"
+version = "0.1.0-preview.1"
+
+[[package]]
 name = "gabriel-vault"
 version = "0.1.0-preview.1"
 dependencies = [
@@ -1092,6 +1100,7 @@ dependencies = [
  "argon2",
  "chacha20poly1305",
  "gabriel-core",
+ "gabriel-testkit",
  "keyring",
  "rand",
  "serde",

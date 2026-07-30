@@ -1005,3 +1005,49 @@ api_token = "sk-live-abcdef123456"
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+/// The support bundle, checked against the shared invariant.
+///
+/// The bundle already has its own leak test with its own values; this one uses
+/// the shared canaries, so a canary added for any other surface is
+/// automatically checked here too.
+#[cfg(test)]
+mod no_secret_leaves_the_process {
+    use super::*;
+    use gabriel_testkit::{assert_no_secret, canary};
+
+    #[test]
+    fn the_whole_bundle_carries_no_secret() {
+        let input = Input {
+            version: "0.0.0-test".into(),
+            platform: Platform::detect(),
+            doctor_json: format!(
+                "{{\"checks\": [{{\"name\": \"outbound proxy\", \"detail\": \
+                 \"HTTPS_PROXY=http://user:{}@proxy.test:3128\"}}]}}",
+                canary::PASSWORD
+            ),
+            collection: Some(CollectionInfo {
+                root: "/tmp/demo".into(),
+                request_names: vec!["login".into()],
+                config_files: vec![(
+                    "environments/dev.toml".into(),
+                    format!(
+                        "[vars]\napi_token = \"{}\"\npassword = \"{}\"\ncookie = \"{}\"\n",
+                        canary::OPAQUE_TOKEN,
+                        canary::PLAIN_SECRET,
+                        canary::COOKIE_VALUE,
+                    ),
+                )],
+            }),
+            captures: None,
+            errors: vec![ErrorRecord {
+                at_ms: 1,
+                command: "run".into(),
+                message: format!("failed sending Bearer {}", canary::JWT),
+            }],
+        };
+
+        let everything: String = build(&input).iter().map(|f| f.contents.as_str()).collect();
+        assert_no_secret("the feedback bundle", &everything);
+    }
+}

@@ -494,10 +494,10 @@ fn normalise_http_version(version: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn capture(id: &str) -> Capture {
+    pub(crate) fn capture(id: &str) -> Capture {
         let mut request_headers = FieldMap::default();
         request_headers.set("Accept", "application/json");
         request_headers.set("Cookie", "sid=abc123; theme=dark");
@@ -809,5 +809,33 @@ mod tests {
         let (captures, skipped) = import(&har, "e-");
         assert!(captures.is_empty());
         assert_eq!(skipped, 0);
+    }
+}
+
+/// HAR export is the one **deliberate exception** to "no secret leaves the
+/// process", recorded here so it is a decision rather than an oversight.
+///
+/// A HAR is a faithful record of traffic — that is the entire point of the
+/// format, and what lets DevTools, Charles and Proxyman read Gabriel's exports
+/// and Gabriel read theirs. Redacting it would produce a file that no longer
+/// describes what happened and cannot be replayed. So `gabriel har export`
+/// writes captured credentials, and the safety property is that the user asked
+/// for it explicitly and the output goes to a path they named.
+#[cfg(test)]
+mod har_export_is_a_deliberate_exception {
+    use super::tests::capture;
+    use super::*;
+
+    #[test]
+    fn a_har_export_contains_the_captured_credentials_on_purpose() {
+        let har = export(&[capture("c1")]);
+        let json = serde_json::to_string(&har).unwrap();
+
+        // If this ever stops being true, the exception has been removed and
+        // this test should be deleted along with it — not "fixed".
+        assert!(
+            json.contains("sid=abc123"),
+            "a HAR export that drops cookies cannot be replayed:\n{json}"
+        );
     }
 }

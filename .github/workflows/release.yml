@@ -329,6 +329,10 @@ jobs:
           ./scripts/release-notes.sh "$version" > NOTES.md
           printf '\n' >> NOTES.md
           cat docs/release-notes-footer.md >> NOTES.md
+          # Release notes are published permanently. The Rust surfaces are
+          # covered by canary assertions; this one has nothing to inject a
+          # canary into, so it is checked by shape.
+          ./scripts/scan-secrets.sh NOTES.md
           echo "--- release notes ---"
           cat NOTES.md
 

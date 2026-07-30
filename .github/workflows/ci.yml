@@ -54,6 +54,13 @@ jobs:
           done
           bash -n installer-tests/run.sh && echo "ok  installer-tests/run.sh"
 
+      # Published prose is an output surface with no canary to inject, so
+      # it is checked by shape instead.
+      - name: Nothing credential-shaped in published text
+        run: |
+          set -euo pipefail
+          ./scripts/scan-secrets.sh README.md CHANGELOG.md docs/*.md
+
       # A release must be able to describe itself. Checking here means the
       # failure lands on the pull request rather than half way through a tag
       # build, when artifacts have already been produced.
