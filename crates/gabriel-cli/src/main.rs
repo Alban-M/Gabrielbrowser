@@ -11,6 +11,7 @@
 
 mod codegen;
 mod doctor;
+mod feedback;
 mod output;
 mod report;
 mod support;
@@ -176,6 +177,17 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Port to test for the capture proxy.
+        #[arg(long, default_value_t = 8888)]
+        port: u16,
+    },
+
+    /// Gather local diagnostics into a directory you can read and then choose
+    /// to share. Nothing is sent anywhere.
+    Feedback {
+        /// Where to write the bundle.
+        #[arg(long, default_value = "gabriel-feedback")]
+        out: PathBuf,
+        /// Port to test for the capture proxy, as `doctor` does.
         #[arg(long, default_value_t = 8888)]
         port: u16,
     },
@@ -383,16 +395,115 @@ enum SessionCommand {
     Clear { name: String },
 }
 
+/// Gather the parts of a collection that are safe to describe: its shape, and
+/// the configuration files whose *values* get redacted downstream. Request
+/// files are named but never read — a developer may well have pasted a token
+/// into one, and their names alone answer "is the request Gabriel is arguing
+/// about the one you think it is".
+fn collect_collection_info(collection: &Collection) -> feedback::CollectionInfo {
+    let root = collection.root().to_path_buf();
+    let mut config_files = Vec::new();
+
+    let mut include = |relative: &str| {
+        if let Ok(raw) = std::fs::read_to_string(root.join(relative)) {
+            config_files.push((relative.to_string(), raw));
+        }
+    };
+    include("collection.toml");
+    for name in collection.environment_names() {
+        include(&format!("environments/{name}.toml"));
+    }
+
+    feedback::CollectionInfo {
+        root: root.display().to_string(),
+        request_names: collection.requests().iter().map(|r| r.id.clone()).collect(),
+        config_files,
+    }
+}
+
+/// Counts, and only counts. The capture log holds live credentials in its
+/// headers and bodies, so nothing from a capture reaches the bundle except how
+/// many there were, which hosts they went to, and what came back.
+fn collect_capture_summary(collection: &Collection) -> Option<feedback::CaptureSummary> {
+    let path = collection.captures_path();
+    if !path.exists() {
+        return None;
+    }
+    let store = CaptureStore::new(path);
+    let captures = store.list(&CaptureFilter::default(), usize::MAX).ok()?;
+
+    let mut summary = feedback::CaptureSummary {
+        total: captures.len(),
+        ..Default::default()
+    };
+    for capture in &captures {
+        // Host only: a path or query string can carry a token.
+        let host = capture
+            .request
+            .url
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .unwrap_or("unknown")
+            .to_string();
+        *summary.by_host.entry(host).or_insert(0) += 1;
+        if let Some(response) = &capture.response {
+            *summary.by_status.entry(response.status).or_insert(0) += 1;
+        }
+        summary.oldest_ms = Some(summary.oldest_ms.map_or(capture.at, |v| v.min(capture.at)));
+        summary.newest_ms = Some(summary.newest_ms.map_or(capture.at, |v| v.max(capture.at)));
+    }
+    Some(summary)
+}
+
+/// The subcommand that was run, for the error log. Matched rather than taken
+/// from argv, because argv holds values — `gabriel vault set token <secret>`.
+fn command_label(command: &Command) -> &'static str {
+    match command {
+        Command::Init { .. } => "init",
+        Command::Ls => "ls",
+        Command::New { .. } => "new",
+        Command::Run(_) => "run",
+        Command::Capture(_) => "capture",
+        Command::Promote(_) => "promote",
+        Command::Diff { .. } => "diff",
+        Command::Vault(_) => "vault",
+        Command::Session(_) => "session",
+        Command::Auth { .. } => "auth",
+        Command::Ws { .. } => "ws",
+        Command::Har(_) => "har",
+        Command::Jwt { .. } => "jwt",
+        Command::Curl { .. } => "curl",
+        Command::Doctor { .. } => "doctor",
+        Command::Feedback { .. } => "feedback",
+        Command::Env => "env",
+        Command::Ca { .. } => "ca",
+    }
+}
+
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     let style = Style::detect();
+
+    // Captured before the command is consumed, so a failure can be recorded
+    // against it.
+    let start_dir = cli.dir.clone().unwrap_or_else(|| PathBuf::from("."));
+    let label = command_label(&cli.command);
 
     match run(cli, &style) {
         Ok(Outcome::Success) => std::process::ExitCode::SUCCESS,
         // A failed assertion is a result, not a crash: exit 1, no error banner.
         Ok(Outcome::AssertionsFailed) => std::process::ExitCode::from(1),
         Err(error) => {
-            eprintln!("{} {error:#}", style.red("error:"));
+            let message = format!("{error:#}");
+            eprintln!("{} {}", style.red("error:"), style.safe(&message));
+
+            // Recorded locally, scrubbed, bounded, and only inside a collection
+            // that already exists — so `gabriel feedback` has something to say
+            // about a failure the user has since walked away from. Never sent.
+            if let Ok(collection) = Collection::discover(&start_dir) {
+                feedback::record_error(&collection.runtime_dir(), label, &message);
+            }
             std::process::ExitCode::from(2)
         }
     }
@@ -660,6 +771,49 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             &start_dir,
             style,
         ),
+
+        Command::Feedback { out, port } => {
+            let environment = doctor::Environment::detect(start_dir.clone(), port);
+            let checks = doctor::check_all(&environment);
+
+            // A collection is optional on purpose: the problems most worth
+            // reporting are the ones that stop a collection existing.
+            let collection = Collection::discover(&start_dir).ok();
+            let info = collection.as_ref().map(collect_collection_info);
+            let captures = collection.as_ref().and_then(collect_capture_summary);
+            let errors = collection
+                .as_ref()
+                .map(|c| feedback::read_errors(&c.runtime_dir()))
+                .unwrap_or_default();
+
+            let input = feedback::Input {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                platform: feedback::Platform::detect(),
+                doctor_json: doctor::to_json(&checks),
+                collection: info,
+                captures,
+                errors,
+            };
+
+            let files = feedback::build(&input);
+            feedback::write_bundle(&out, &files)?;
+
+            println!("{} {}", style.green("wrote"), out.display());
+            println!();
+            for file in &files {
+                println!("  {:<28} {} bytes", file.path, file.contents.len());
+            }
+            println!();
+            println!("Nothing has been sent anywhere.");
+            println!(
+                "{}",
+                style.dim(&format!(
+                    "Read {}/README.md, then share the directory if you are happy with it.",
+                    out.display()
+                ))
+            );
+            Ok(Outcome::Success)
+        }
 
         Command::Doctor { json, port } => {
             let environment = doctor::Environment::detect(start_dir.clone(), port);

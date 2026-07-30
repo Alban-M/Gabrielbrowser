@@ -406,9 +406,12 @@ fn check_environment_vars(env: &Environment) -> Vec<Check> {
             "no HTTP_PROXY/HTTPS_PROXY in the environment",
         ));
     } else {
+        // A proxy URL routinely carries `user:password@`, and doctor output is
+        // something people paste into bug reports — that is what it is for. The
+        // host is the diagnostic part; the credentials are not.
         let detail = outer_proxy
             .iter()
-            .map(|(name, value)| format!("{name}={value}"))
+            .map(|(name, value)| format!("{name}={}", crate::feedback::scrub(value)))
             .collect::<Vec<_>>()
             .join(", ");
         checks.push(
@@ -473,6 +476,29 @@ pub fn to_json(checks: &[Check]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proxy_credentials_are_not_printed_back() {
+        // doctor output is meant to be pasted into a bug report, so a password
+        // in HTTPS_PROXY must not survive the trip.
+        let env = Environment {
+            start_dir: std::env::temp_dir(),
+            proxy_port: 0,
+            vars: vec![(
+                "HTTPS_PROXY".to_string(),
+                "http://alice:hunter2@proxy.corp:8080".to_string(),
+            )],
+        };
+        let checks = check_all(&env);
+        let proxy = checks
+            .iter()
+            .find(|c| c.name == "outbound proxy")
+            .expect("no outbound proxy check");
+
+        assert!(!proxy.detail.contains("hunter2"), "{}", proxy.detail);
+        // Still says enough to be worth reading.
+        assert!(proxy.detail.contains("proxy.corp:8080"), "{}", proxy.detail);
+    }
 
     fn temp_dir(label: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};

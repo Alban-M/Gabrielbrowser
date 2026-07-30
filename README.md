@@ -131,6 +131,7 @@ gabriel har export --out t.har     # take it back out again
 gabriel run --all --junit r.xml    # run the collection, report to CI
 gabriel auth <name>                # OAuth2 sign-in (PKCE), tokens to the vault
 gabriel doctor                     # check the environment before asking for help
+gabriel feedback                   # bundle local diagnostics to read and maybe share
 ```
 
 The promotion step is the point. A captured request becomes a file with **no
@@ -234,6 +235,26 @@ with permissions that leak, an `HTTPS_PROXY` silently rerouting every request,
 a collection that is not where you think. Each problem prints the fix. It needs
 no network, creates nothing, and works outside a collection. `--json` for
 scripts; exit code 1 only on a real failure, not a warning.
+
+If that is not enough to explain the problem:
+
+```bash
+gabriel feedback
+```
+
+It writes a `gabriel-feedback/` directory — version, platform, `doctor` output,
+your configuration with every value redacted, the last failures, and counts of
+what the proxy captured. **Nothing is transmitted.** It runs only when you ask,
+and the output is plain text you can read before deciding to attach it to a bug
+report.
+
+The bundle is built from a list of fields known to be safe rather than copied
+and then stripped, so the vault, session cookies, the CA key, captured headers
+and bodies, and the contents of your request files are absent by construction
+rather than by filtering. Free text that does get in — error messages,
+configuration values — is additionally scrubbed of URL passwords, JWTs, bearer
+tokens, labelled keys and unlabelled credential-shaped strings. That scrubbing
+is a second line of defence, not the first: read the files.
 
 ## Contributing
 

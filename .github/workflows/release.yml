@@ -185,6 +185,36 @@ jobs:
           gabriel doctor
           gabriel doctor --json | grep -q '"status"'
 
+      # The feedback bundle is a thing users are told to send to us, so the
+      # release gate checks it does not carry a credential out with it.
+      - name: The feedback bundle builds and leaks nothing
+        shell: bash
+        env:
+          GABRIEL_VAULT_PASSPHRASE: smoke-test-passphrase
+          HTTPS_PROXY: http://someone:hunter2@proxy.invalid:3128
+        run: |
+          set -euo pipefail
+          mkdir -p feedback-check && cd feedback-check
+          gabriel init feedback-check
+          cat > gabriel/environments/dev.toml <<'CONF'
+          name = "dev"
+          [vars]
+          base_url = "https://api.example.com"
+          api_token = "sk-live-9f3a2b1c8d7e6f5a4b3c2d1e0f9a8b7c"
+          CONF
+          gabriel feedback --out bundle
+          test -f bundle/README.md
+          test -f bundle/doctor.json
+          test -f bundle/logs/recent-errors.json
+          for secret in hunter2 sk-live-9f3a2b1c8d7e6f5a4b3c2d1e0f9a8b7c someone; do
+            if grep -rq "$secret" bundle/; then
+              echo "the feedback bundle leaked: $secret"
+              exit 1
+            fi
+          done
+          echo "bundle is clean"
+          cd ..
+
       - name: A collection can be created and read back
         shell: bash
         run: |

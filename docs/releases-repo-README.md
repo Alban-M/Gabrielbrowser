@@ -30,6 +30,10 @@ gabriel doctor
 `gabriel doctor` checks the things that actually break a first run and prints
 the fix for each one. If Gabriel misbehaves, run it before anything else.
 
+If it does not explain the problem, `gabriel feedback` writes a directory of
+diagnostics you can read and then attach to a bug report. Nothing is sent
+anywhere — there is no telemetry in Gabriel at all.
+
 The installer works out your platform, verifies the SHA-256 before copying
 anything, and refuses to install a download it cannot verify. Override the
 defaults with `GABRIEL_INSTALL_DIR` and `GABRIEL_VERSION`.

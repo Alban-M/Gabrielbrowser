@@ -44,6 +44,9 @@ answers exist, the release becomes 0.1.0.
 - **JUnit and HTML reports** — `run --all --junit r.xml --html r.html`.
 - **JWT inspection** — `gabriel jwt`, locally, with expiry and `alg: none`
   checks. Signatures are not verified.
+- **Diagnostics** — `gabriel doctor` checks what breaks a first run and prints
+  the fix for each. `gabriel feedback` gathers a support bundle you read and
+  choose to share. There is no telemetry, and nothing is ever transmitted.
 
 ### Safety properties
 
@@ -56,6 +59,8 @@ answers exist, the release becomes 0.1.0.
   reports.
 - Request paths cannot escape the collection.
 - Runtime files (vault, sessions, captures, CA key) are `0600` on Unix.
+- The feedback bundle is assembled from an allow-list of safe fields, so the
+  vault, session cookies, the CA key and captured traffic cannot reach it.
 
 ### Known limits
 
