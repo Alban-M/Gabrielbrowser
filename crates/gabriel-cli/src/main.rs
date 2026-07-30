@@ -10,6 +10,7 @@
 //! ```
 
 mod codegen;
+mod doctor;
 mod output;
 mod report;
 mod support;
@@ -167,6 +168,16 @@ enum Command {
         /// Print on one line instead of wrapping with continuations.
         #[arg(long)]
         one_line: bool,
+    },
+
+    /// Check the environment and report anything that will get in the way.
+    Doctor {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+        /// Port to test for the capture proxy.
+        #[arg(long, default_value_t = 8888)]
+        port: u16,
     },
 
     /// List environments.
@@ -649,6 +660,46 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             &start_dir,
             style,
         ),
+
+        Command::Doctor { json, port } => {
+            let environment = doctor::Environment::detect(start_dir.clone(), port);
+            let checks = doctor::check_all(&environment);
+
+            if json {
+                println!("{}", doctor::to_json(&checks));
+            } else {
+                println!("{}", style.bold("Gabriel environment check"));
+                println!();
+                for check in &checks {
+                    let marker = match check.status {
+                        doctor::Status::Ok => style.green(check.status.marker()),
+                        doctor::Status::Info => style.dim(check.status.marker()),
+                        doctor::Status::Warn => style.yellow(check.status.marker()),
+                        doctor::Status::Fail => style.red(check.status.marker()),
+                    };
+                    println!("{marker} {:<22} {}", check.name, style.safe(&check.detail));
+                    if let Some(remedy) = &check.remedy {
+                        println!("  {}", style.dim(&format!("→ {remedy}")));
+                    }
+                }
+                println!();
+                match doctor::worst(&checks) {
+                    doctor::Status::Fail => println!("{}", style.red("Problems found.")),
+                    doctor::Status::Warn => {
+                        println!("{}", style.yellow("Usable, with warnings above."))
+                    }
+                    _ => println!("{}", style.green("No issues detected.")),
+                }
+            }
+
+            // Non-zero only on a real failure: a warning should not break a
+            // script that runs doctor as a precondition.
+            Ok(if doctor::worst(&checks) == doctor::Status::Fail {
+                Outcome::AssertionsFailed
+            } else {
+                Outcome::Success
+            })
+        }
 
         Command::Env => {
             let collection = open_collection(&start_dir)?;

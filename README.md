@@ -88,6 +88,7 @@ gabriel har import <file>          # bring in traffic from DevTools/Charles/Prox
 gabriel har export --out t.har     # take it back out again
 gabriel run --all --junit r.xml    # run the collection, report to CI
 gabriel auth <name>                # OAuth2 sign-in (PKCE), tokens to the vault
+gabriel doctor                     # check the environment before asking for help
 ```
 
 The promotion step is the point. A captured request becomes a file with **no
@@ -179,6 +180,19 @@ client_cert = "{{secret:client_identity}}"
 # client_cert = "certs/client.pem"
 ```
 
+## When something is wrong
+
+```bash
+gabriel doctor
+```
+
+Checks the things that actually break a first run — an untrusted or corrupt CA,
+a proxy port already taken, a vault whose key is unreachable, credential files
+with permissions that leak, an `HTTPS_PROXY` silently rerouting every request,
+a collection that is not where you think. Each problem prints the fix. It needs
+no network, creates nothing, and works outside a collection. `--json` for
+scripts; exit code 1 only on a real failure, not a warning.
+
 ## Contributing
 
 CI runs the suite on Linux, macOS and Windows, and gates on `cargo fmt --check`,
@@ -188,7 +202,7 @@ before opening a pull request and there should be no surprises.
 ## Building
 
 ```bash
-cargo test          # 315 tests
+cargo test          # 327 tests
 cargo build --release
 ```
 

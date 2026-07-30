@@ -78,9 +78,148 @@ jobs:
             gabriel-*.zip
             gabriel-*.sha256
 
+
+  smoke:
+    name: smoke ${{ matrix.target }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Only the targets a runner can actually execute. The two cross-built
+          # ones (x86_64-apple-darwin, aarch64-unknown-linux-gnu) are shipped
+          # untested by this job — noted here rather than left to be assumed.
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+
+      - name: Verify the checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=$(ls gabriel-*.tar.gz gabriel-*.zip 2>/dev/null | head -1)
+          echo "archive: $archive"
+          if command -v shasum >/dev/null; then
+            shasum -a 256 -c "$archive.sha256"
+          else
+            # certutil's output is not in `sha256sum -c` format, so compare by hand.
+            expected=$(grep -Eo '\b[0-9a-fA-F]{64}\b' "$archive.sha256" | head -1 | tr 'A-Z' 'a-z')
+            actual=$(sha256sum "$archive" | cut -d' ' -f1)
+            echo "expected $expected"
+            echo "actual   $actual"
+            [ "$expected" = "$actual" ]
+          fi
+
+      - name: Install the artifact the way a user would
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          archive=$(ls gabriel-*.tar.gz gabriel-*.zip 2>/dev/null | head -1)
+          case "$archive" in
+            *.tar.gz) tar xzf "$archive" ;;
+            *.zip)    unzip -q "$archive" ;;
+          esac
+          staged=$(basename "$archive" | sed -e 's/\.tar\.gz$//' -e 's/\.zip$//')
+          cp "$staged"/gabriel* "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # From here on, only the installed binary is used — never cargo, never the
+      # source tree. This job has no checkout on purpose: if it passes, the
+      # artifact alone is sufficient.
+      - name: Version matches the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          reported=$(gabriel --version)
+          echo "$reported"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            expected="${GITHUB_REF_NAME#v}"
+            echo "$reported" | grep -Fq "$expected" \
+              || { echo "binary reports '$reported' but the tag is '$GITHUB_REF_NAME'"; exit 1; }
+          fi
+
+      - name: Diagnostics run and pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          gabriel doctor
+          gabriel doctor --json | grep -q '"status"'
+
+      - name: A collection can be created and read back
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p smoke && cd smoke
+          gabriel init smoke-collection
+          gabriel ls | grep -q example
+          gabriel env | grep -q dev
+          gabriel doctor | grep -q "collection"
+
+      - name: An offline request is generated and inspected
+        shell: bash
+        env:
+          # No login keychain on a CI runner.
+          GABRIEL_VAULT_PASSPHRASE: smoke-test-passphrase
+        run: |
+          set -euo pipefail
+          cd smoke
+          gabriel curl example | grep -q "^curl"
+          gabriel vault set smoke-secret shhh
+          gabriel vault ls | grep -q smoke-secret
+          # A token with a known payload, decoded without a network.
+          token='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzbW9rZSIsImV4cCI6NDg4NDAwMDAwMH0.c2ln'
+          gabriel jwt "$token" | grep -q smoke
+
+      - name: A real request is sent and replayed
+        shell: bash
+        env:
+          GABRIEL_VAULT_PASSPHRASE: smoke-test-passphrase
+        run: |
+          set -euo pipefail
+          cd smoke
+          # A local origin, so the smoke test needs no internet and cannot be
+          # flaky because somebody else's service is down.
+          mkdir -p origin && printf '{"ok":true,"from":"smoke"}' > origin/get
+          # Ubuntu runners ship python3; the Windows image ships python.
+          py=$(command -v python3 || command -v python)
+          (cd origin && "$py" -m http.server 8799 >/dev/null 2>&1 &)
+          for _ in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:8799/get" >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+
+          gabriel run example --var base_url=http://127.0.0.1:8799 | tee run.out
+          grep -q '"from"' run.out
+
+          # And the same request through the collection runner, with reports.
+          gabriel run --all --var base_url=http://127.0.0.1:8799 \
+            --junit results.xml --html report.html
+          grep -q "<testsuites" results.xml
+          grep -q "<!doctype html>" report.html
+
+      - name: Traffic can leave and come back
+        shell: bash
+        env:
+          GABRIEL_VAULT_PASSPHRASE: smoke-test-passphrase
+        run: |
+          set -euo pipefail
+          cd smoke
+          gabriel har export --out out.har
+          grep -q '"version": "1.2"' out.har
+          gabriel har import out.har
+
   release:
     name: publish release
-    needs: build
+    needs: [build, smoke]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
