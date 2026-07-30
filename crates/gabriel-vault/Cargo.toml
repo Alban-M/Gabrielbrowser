@@ -2,6 +2,12 @@
 name = "gabriel-vault"
 version = "0.1.0"
 edition = "2024"
+description = "Encrypted secret store for Gabriel (XChaCha20-Poly1305, OS keychain or Argon2id)"
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["http", "api", "proxy", "cli", "testing"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
 argon2 = "0.5.3"

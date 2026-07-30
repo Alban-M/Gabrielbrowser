@@ -2,6 +2,12 @@
 name = "gabriel-proxy"
 version = "0.1.0"
 edition = "2024"
+description = "MITM capture proxy with a per-install CA for Gabriel"
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["http", "api", "proxy", "cli", "testing"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
 futures-util = { version = "0.3.33", default-features = false }

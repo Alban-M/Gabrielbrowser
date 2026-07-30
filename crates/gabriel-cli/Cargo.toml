@@ -2,6 +2,12 @@
 name = "gabriel-cli"
 version = "0.1.0"
 edition = "2024"
+description = "A local-first API workbench: capture live traffic, promote it to editable requests, replay it with the session intact"
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["http", "api", "proxy", "cli", "testing"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
 anyhow = "1.0.104"

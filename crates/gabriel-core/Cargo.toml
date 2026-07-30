@@ -2,6 +2,12 @@
 name = "gabriel-core"
 version = "0.1.0"
 edition = "2024"
+description = "Request format, templating, captures and response diffing for Gabriel"
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["http", "api", "proxy", "cli", "testing"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
 base64 = "0.23.0"

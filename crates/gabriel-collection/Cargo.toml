@@ -2,6 +2,12 @@
 name = "gabriel-collection"
 version = "0.1.0"
 edition = "2024"
+description = "Local-first, Git-native collections on disk for Gabriel"
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["http", "api", "proxy", "cli", "testing"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
 gabriel-core = { version = "0.1.0", path = "../gabriel-core" }

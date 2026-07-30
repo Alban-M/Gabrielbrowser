@@ -11,6 +11,60 @@ part of a "developer browser" is not the browser — it is the seam between the
 browser, the API bench, and the proxy. This repository builds that seam, headless,
 as the engine a browser shell would later sit on top of.
 
+## Install
+
+No published binaries yet — the release workflow builds them on a tag, and the
+first tag has not been cut. Until then:
+
+```bash
+cargo install --git https://github.com/Alban-M/Gabrielbrowser gabriel-cli
+```
+
+Once a release exists, downloads will be attached to it with SHA-256 sums, and
+macOS will need the quarantine flag cleared (`xattr -d com.apple.quarantine
+gabriel`) because the binaries are unsigned.
+
+Rust 1.85 or newer, for edition 2024.
+
+## Five-minute quickstart
+
+```bash
+mkdir demo && cd demo
+gabriel init                          # creates ./gabriel/
+```
+
+Record something real. In one terminal:
+
+```bash
+gabriel capture start                 # a proxy on 127.0.0.1:8888
+```
+
+Trust the CA once — `gabriel ca` prints the exact command for your platform —
+then point a browser or `curl` at the proxy and use the site you are debugging:
+
+```bash
+curl --proxy http://127.0.0.1:8888 --cacert gabriel/.runtime/gabriel-ca.pem \
+  https://httpbin.org/cookies/set?session_id=demo
+```
+
+Back in the first terminal, find the request and turn it into a file:
+
+```bash
+gabriel capture ls                    # newest first
+gabriel promote <capture-id> --to users/me
+```
+
+The file it writes has no credentials in it. Replay it anyway:
+
+```bash
+gabriel run users/me                  # still authenticated
+```
+
+From here: `gabriel run --all --junit results.xml` in CI, `gabriel curl users/me`
+to share a request, `gabriel jwt <token>` to inspect a token without pasting it
+into a website, `gabriel ws <url>` for sockets, `gabriel har import <file>` to
+bring in traffic recorded elsewhere.
+
 ## What works today
 
 ```bash
@@ -119,10 +173,16 @@ client_cert = "{{secret:client_identity}}"
 # client_cert = "certs/client.pem"
 ```
 
+## Contributing
+
+CI runs the suite on Linux, macOS and Windows, and gates on `cargo fmt --check`,
+`cargo clippy -- -D warnings` and a dependency advisory scan. Run those locally
+before opening a pull request and there should be no surprises.
+
 ## Building
 
 ```bash
-cargo test          # 313 tests
+cargo test          # 314 tests
 cargo build --release
 ```
 
