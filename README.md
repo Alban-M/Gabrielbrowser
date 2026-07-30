@@ -107,7 +107,20 @@ mock servers and contract testing, the AI assistant, code generation, engine-lev
 content blocking, team sync, and the browser shell itself. The MVP is the loop
 above; everything else waits until that loop is undeniably good.
 
-Known gaps in what *is* built: bodies are buffered rather than streamed (so
-server-sent events and websockets pass through but are not captured), OAuth2
-covers the client-credentials and password grants but not the authorization-code
-redirect flow, and the proxy speaks HTTP/1.1 to the browser.
+Known gaps in what *is* built:
+
+- **Streaming is delivered, not captured.** Event streams, `multipart/x-mixed-replace`,
+  and bodies larger than the capture limit are passed straight through; the
+  capture records their headers and status but not the body. Everything else is
+  buffered so it can be captured in full.
+- **Upgraded connections are relayed, not inspected.** A WebSocket handshake is
+  forwarded verbatim and the sockets spliced, so the connection works and is
+  recorded as a 101 — but the frames are not captured. The relay is exercised
+  end to end over plain HTTP; the TLS path shares the same code but has only
+  been verified by inspection.
+- **`settings.client_cert` is not implemented.** The field parses but the engine
+  does not present a client certificate, so mTLS does not work yet.
+- **OAuth2** covers the client-credentials and password grants, not the
+  authorization-code redirect flow.
+- **The proxy speaks HTTP/1.1** to the browser.
+- **Capture reads scale with the whole log** — see [docs/performance.md](docs/performance.md).

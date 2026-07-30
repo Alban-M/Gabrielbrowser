@@ -15,11 +15,13 @@ pub mod ca;
 pub mod store;
 
 use ca::CertificateAuthority;
+use futures_util::TryStreamExt as _;
 use gabriel_core::capture::{Capture, CapturedBody, CapturedRequest, CapturedResponse};
 use gabriel_core::model::FieldMap;
 use gabriel_engine::session::SessionStore;
-use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Empty, Full, StreamBody};
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -29,6 +31,27 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use store::CaptureStore;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
+
+/// The proxy's response body. Boxed because a response is either buffered (so
+/// it can be captured) or streamed straight through (so it can't be, but also
+/// can't stall).
+type ProxyBody = BoxBody<Bytes, std::io::Error>;
+
+fn buffered(bytes: Bytes) -> ProxyBody {
+    Full::new(bytes)
+        .map_err(|never: std::convert::Infallible| match never {})
+        .boxed()
+}
+
+fn empty_body() -> ProxyBody {
+    Empty::<Bytes>::new()
+        .map_err(|never: std::convert::Infallible| match never {})
+        .boxed()
+}
+
+/// Any stream whose bytes can be relayed in both directions.
+trait IoStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> IoStream for T {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
@@ -92,6 +115,8 @@ struct ProxyState {
     store: CaptureStore,
     sessions: Mutex<SessionStore>,
     client: reqwest::Client,
+    /// Used only for upgraded connections, which an HTTP client cannot carry.
+    tls_client: tokio_rustls::TlsConnector,
     counter: AtomicU64,
 }
 
@@ -128,6 +153,14 @@ impl Proxy {
             .build()
             .expect("default client builds");
 
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let tls_client = tokio_rustls::TlsConnector::from(Arc::new(
+            rustls::ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+        ));
+
         Ok(Proxy {
             state: Arc::new(ProxyState {
                 config,
@@ -135,6 +168,7 @@ impl Proxy {
                 store,
                 sessions: Mutex::new(sessions),
                 client,
+                tls_client,
                 counter: AtomicU64::new(0),
             }),
         })
@@ -172,7 +206,7 @@ impl Proxy {
     }
 }
 
-type ProxyResponse = Response<Full<Bytes>>;
+type ProxyResponse = Response<ProxyBody>;
 
 async fn handle_request(
     req: Request<Incoming>,
@@ -184,7 +218,15 @@ async fn handle_request(
 
     // A plain proxied request carries an absolute URI.
     let url = req.uri().to_string();
-    Ok(forward(req, url, state).await.unwrap_or_else(bad_gateway))
+    Ok(dispatch(req, url, state).await)
+}
+
+/// Route one request: an upgrade gets spliced, everything else is forwarded.
+async fn dispatch(req: Request<Incoming>, url: String, state: Arc<ProxyState>) -> ProxyResponse {
+    if upgrade_target(&req).is_some() {
+        return relay_upgrade(req, url, state).await.unwrap_or_else(bad_gateway);
+    }
+    forward(req, url, state).await.unwrap_or_else(bad_gateway)
 }
 
 /// `CONNECT host:443` — either intercept with our own certificate, or splice
@@ -208,7 +250,7 @@ fn handle_connect(req: Request<Incoming>, state: Arc<ProxyState>) -> ProxyRespon
         }
     });
 
-    Response::new(Full::new(Bytes::new()))
+    Response::new(empty_body())
 }
 
 /// Terminate TLS with a certificate for `host`, then serve the plaintext
@@ -238,14 +280,15 @@ async fn intercept_tls(
                 .map(|p| p.as_str().to_string())
                 .unwrap_or_else(|| "/".to_string());
             let url = format!("https://{host}{path}");
-            Ok::<_, std::convert::Infallible>(
-                forward(req, url, state).await.unwrap_or_else(bad_gateway),
-            )
+            Ok::<_, std::convert::Infallible>(dispatch(req, url, state).await)
         }
     });
 
     let _ = hyper::server::conn::http1::Builder::new()
         .serve_connection(TokioIo::new(tls), service)
+        // Without this, a WebSocket handshake inside the intercepted tunnel
+        // completes and then goes nowhere.
+        .with_upgrades()
         .await;
     Ok(())
 }
@@ -258,6 +301,174 @@ async fn tunnel(
     let mut upstream = TcpStream::connect(&authority).await?;
     tokio::io::copy_bidirectional(&mut io, &mut upstream).await?;
     Ok(())
+}
+
+/// Whether this request is asking to change protocol — a WebSocket handshake,
+/// in practice.
+fn upgrade_target<B>(req: &Request<B>) -> Option<String> {
+    let connection = req
+        .headers()
+        .get(hyper::header::CONNECTION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    // `Connection` is a comma-separated token list, so a substring test would
+    // match the wrong thing.
+    let asks_to_upgrade = connection.split(',').any(|token| token.trim() == "upgrade");
+    if !asks_to_upgrade {
+        return None;
+    }
+    req.headers()
+        .get(hyper::header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|target| target.to_ascii_lowercase())
+}
+
+/// Relay a protocol upgrade.
+///
+/// An upgraded connection cannot go through an HTTP client: after the 101 the
+/// bytes are no longer HTTP, so there is nothing to parse and nothing to
+/// capture. The handshake is forwarded verbatim and the two sockets are then
+/// spliced. Gabriel records that the upgrade happened and stays out of the
+/// frames.
+async fn relay_upgrade(
+    mut req: Request<Incoming>,
+    url: String,
+    state: Arc<ProxyState>,
+) -> Result<ProxyResponse, String> {
+    let parsed = reqwest::Url::parse(&url).map_err(|e| format!("{url}: {e}"))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("{url} has no host"))?
+        .to_string();
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let is_tls = matches!(parsed.scheme(), "https" | "wss");
+
+    // Claim the client side of the upgrade before the request is consumed.
+    let client_side = hyper::upgrade::on(&mut req);
+
+    let (parts, _body) = req.into_parts();
+    let path = parsed[url::Position::BeforePath..].to_string();
+
+    let mut upstream_request = Request::builder().method(parts.method.clone()).uri(&path);
+    for (name, value) in parts.headers.iter() {
+        // `Connection` and `Upgrade` are hop-by-hop but they *are* the
+        // handshake, so they travel; the rest of the hop headers do not.
+        let name_str = name.as_str();
+        if is_hop_by_hop(name_str)
+            && !name_str.eq_ignore_ascii_case("connection")
+            && !name_str.eq_ignore_ascii_case("upgrade")
+        {
+            continue;
+        }
+        upstream_request = upstream_request.header(name, value);
+    }
+    let upstream_request = upstream_request
+        .body(Empty::<Bytes>::new())
+        .map_err(|e| format!("building the upgrade request failed: {e}"))?;
+
+    let tcp = TcpStream::connect((host.as_str(), port))
+        .await
+        .map_err(|e| format!("connecting to {host}:{port} failed: {e}"))?;
+    let io: Box<dyn IoStream> = if is_tls {
+        let name = rustls::pki_types::ServerName::try_from(host.clone())
+            .map_err(|e| format!("{host} is not a valid server name: {e}"))?;
+        let tls = state
+            .tls_client
+            .connect(name, tcp)
+            .await
+            .map_err(|e| format!("TLS handshake with {host} failed: {e}"))?;
+        Box::new(tls)
+    } else {
+        Box::new(tcp)
+    };
+
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(io))
+        .await
+        .map_err(|e| format!("HTTP handshake with {host} failed: {e}"))?;
+    // The connection task must keep running for the upgrade to complete.
+    tokio::spawn(async move {
+        let _ = connection.with_upgrades().await;
+    });
+
+    let mut upstream_response = sender
+        .send_request(upstream_request)
+        .await
+        .map_err(|e| format!("upgrade request to {url} failed: {e}"))?;
+
+    let status = upstream_response.status();
+    let mut response_headers = FieldMap::default();
+    for (name, value) in upstream_response.headers() {
+        response_headers.insert(
+            name.as_str(),
+            value.to_str().unwrap_or("<binary header value>"),
+        );
+    }
+
+    let sequence = state.counter.fetch_add(1, Ordering::Relaxed);
+    let mut request_headers = FieldMap::default();
+    for (name, value) in parts.headers.iter() {
+        request_headers.insert(name.as_str(), value.to_str().unwrap_or("<binary header value>"));
+    }
+    let _ = state.store.append(&Capture {
+        id: format!("c{:x}{:04x}", gabriel_core::now_ms(), sequence & 0xffff),
+        at: gabriel_core::now_ms(),
+        duration_ms: 0,
+        session: Some(state.config.session.clone()),
+        page: None,
+        request: CapturedRequest {
+            method: parts.method.to_string(),
+            url: url.clone(),
+            http_version: format!("{:?}", parts.version),
+            headers: request_headers,
+            body: None,
+        },
+        response: Some(CapturedResponse {
+            status: status.as_u16(),
+            status_text: status.canonical_reason().unwrap_or("").to_string(),
+            headers: response_headers.clone(),
+            body: None,
+        }),
+    });
+
+    if status != StatusCode::SWITCHING_PROTOCOLS {
+        // The server declined to upgrade; pass its answer along as an ordinary
+        // response.
+        let bytes = upstream_response
+            .body_mut()
+            .collect()
+            .await
+            .map(|collected| collected.to_bytes())
+            .unwrap_or_default();
+        let mut out = Response::builder().status(status);
+        for (name, value) in response_headers.iter_pairs() {
+            if !is_hop_by_hop(name) && !name.eq_ignore_ascii_case("content-length") {
+                out = out.header(name, value);
+            }
+        }
+        return out
+            .body(buffered(bytes))
+            .map_err(|e| format!("building the response failed: {e}"));
+    }
+
+    let upstream_side = hyper::upgrade::on(&mut upstream_response);
+    tokio::spawn(async move {
+        match tokio::try_join!(client_side, upstream_side) {
+            Ok((client, upstream)) => {
+                let mut client = TokioIo::new(client);
+                let mut upstream = TokioIo::new(upstream);
+                let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+            }
+            Err(_) => {}
+        }
+    });
+
+    let mut out = Response::builder().status(StatusCode::SWITCHING_PROTOCOLS);
+    for (name, value) in response_headers.iter_pairs() {
+        out = out.header(name, value);
+    }
+    out.body(empty_body())
+        .map_err(|e| format!("building the 101 response failed: {e}"))
 }
 
 /// Send the request upstream, record it, and hand the response back to the
@@ -320,11 +531,6 @@ async fn forward(
         response_headers.insert(name.as_str(), value);
     }
 
-    let response_body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("reading the response body failed: {e}"))?;
-
     // Cookies the browser was just given are cookies a replayed request needs.
     if !set_cookies.is_empty()
         && let Ok(parsed) = reqwest::Url::parse(&url)
@@ -341,41 +547,87 @@ async fn forward(
         let _ = sessions.save();
     }
 
-    let sequence = state.counter.fetch_add(1, Ordering::Relaxed);
-    let capture = Capture {
-        id: format!("c{:x}{:04x}", gabriel_core::now_ms(), sequence & 0xffff),
-        at: gabriel_core::now_ms(),
-        duration_ms: started.elapsed().as_millis() as u64,
-        session: Some(state.config.session.clone()),
-        page,
-        request: CapturedRequest {
-            method: method.to_string(),
-            url: url.clone(),
-            http_version: version,
-            headers: request_headers,
-            body: body_for_capture(&request_body, state.config.max_body_bytes),
-        },
-        response: Some(CapturedResponse {
-            status: status.as_u16(),
-            status_text: status.canonical_reason().unwrap_or("").to_string(),
-            headers: response_headers.clone(),
-            body: body_for_capture(&response_body, state.config.max_body_bytes),
-        }),
+    let record = |response_body: Option<&Bytes>| {
+        let sequence = state.counter.fetch_add(1, Ordering::Relaxed);
+        let capture = Capture {
+            id: format!("c{:x}{:04x}", gabriel_core::now_ms(), sequence & 0xffff),
+            at: gabriel_core::now_ms(),
+            duration_ms: started.elapsed().as_millis() as u64,
+            session: Some(state.config.session.clone()),
+            page: page.clone(),
+            request: CapturedRequest {
+                method: method.to_string(),
+                url: url.clone(),
+                http_version: version.clone(),
+                headers: request_headers.clone(),
+                body: body_for_capture(&request_body, state.config.max_body_bytes),
+            },
+            response: Some(CapturedResponse {
+                status: status.as_u16(),
+                status_text: status.canonical_reason().unwrap_or("").to_string(),
+                headers: response_headers.clone(),
+                body: response_body
+                    .and_then(|bytes| body_for_capture(bytes, state.config.max_body_bytes)),
+            }),
+        };
+        // A failure to record must not break the page the developer is loading.
+        let _ = state.store.append(&capture);
     };
-    // A failure to record must not break the page the developer is loading.
-    let _ = state.store.append(&capture);
 
     let mut out = Response::builder().status(status.as_u16());
     for (name, value) in response_headers.iter_pairs() {
-        // Content-Length is recomputed by hyper from the buffered body, and a
-        // stale Transfer-Encoding would make the response unparseable.
+        // Content-Length is recomputed by hyper from the body it is given, and
+        // a stale Transfer-Encoding would make the response unparseable.
         if is_hop_by_hop(name) || name.eq_ignore_ascii_case("content-length") {
             continue;
         }
         out = out.header(name, value);
     }
-    out.body(Full::new(response_body))
+
+    // A response that never ends must not be buffered: waiting for the last
+    // byte of an event stream means the browser sees nothing at all. Capture
+    // gives way to delivery here, and the capture records the headers alone.
+    if streams_indefinitely(&response_headers, state.config.max_body_bytes) {
+        record(None);
+        let stream = response
+            .bytes_stream()
+            .map_ok(Frame::data)
+            .map_err(std::io::Error::other);
+        return out
+            .body(StreamBody::new(stream).boxed())
+            .map_err(|e| format!("building the streaming response failed: {e}"));
+    }
+
+    let response_body = response
+        .bytes()
+        .await
+        .map_err(|e| format!("reading the response body failed: {e}"))?;
+    record(Some(&response_body));
+
+    out.body(buffered(response_body))
         .map_err(|e| format!("building the response failed: {e}"))
+}
+
+/// Whether a response body has to be passed through rather than collected.
+///
+/// Two cases: bodies that are open-ended by design (an event stream has no last
+/// byte to wait for), and bodies too large to hold in memory — which the
+/// capture would have discarded anyway.
+fn streams_indefinitely(headers: &FieldMap, max_body_bytes: usize) -> bool {
+    let content_type = headers
+        .get_first("content-type")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if content_type.starts_with("text/event-stream")
+        || content_type.starts_with("multipart/x-mixed-replace")
+        || content_type.starts_with("application/grpc")
+    {
+        return true;
+    }
+    headers
+        .get_first("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length > max_body_bytes)
 }
 
 fn body_for_capture(bytes: &[u8], max: usize) -> Option<CapturedBody> {
@@ -408,7 +660,7 @@ fn status_response(status: StatusCode, message: &str) -> ProxyResponse {
     Response::builder()
         .status(status)
         .header("content-type", "text/plain; charset=utf-8")
-        .body(Full::new(Bytes::from(format!("gabriel proxy: {message}\n"))))
+        .body(buffered(Bytes::from(format!("gabriel proxy: {message}\n"))))
         .expect("static response builds")
 }
 
@@ -473,5 +725,74 @@ mod tests {
         assert!(is_hop_by_hop("Connection"));
         assert!(is_hop_by_hop("transfer-encoding"));
         assert!(!is_hop_by_hop("authorization"));
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> FieldMap {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn event_streams_are_never_buffered() {
+        assert!(streams_indefinitely(
+            &headers(&[("content-type", "text/event-stream")]),
+            8_000_000
+        ));
+        assert!(streams_indefinitely(
+            &headers(&[("Content-Type", "text/event-stream; charset=utf-8")]),
+            8_000_000
+        ));
+    }
+
+    #[test]
+    fn ordinary_responses_are_buffered_so_they_can_be_captured() {
+        assert!(!streams_indefinitely(
+            &headers(&[("content-type", "application/json"), ("content-length", "1024")]),
+            8_000_000
+        ));
+        // A chunked JSON response has no content-length and must still buffer.
+        assert!(!streams_indefinitely(
+            &headers(&[("content-type", "application/json")]),
+            8_000_000
+        ));
+    }
+
+    #[test]
+    fn a_body_too_large_to_capture_is_streamed_instead_of_held() {
+        assert!(streams_indefinitely(
+            &headers(&[("content-type", "video/mp4"), ("content-length", "900000000")]),
+            8_000_000
+        ));
+    }
+
+    /// `upgrade_target` only reads headers, so the body type is irrelevant —
+    /// which is why it is generic and testable without a live connection.
+    fn request_with(pairs: &[(&str, &str)]) -> Request<()> {
+        let mut builder = Request::builder().uri("http://api.test/socket");
+        for (name, value) in pairs {
+            builder = builder.header(*name, *value);
+        }
+        builder.body(()).expect("builds")
+    }
+
+    #[test]
+    fn a_websocket_handshake_is_recognised() {
+        let req = request_with(&[("connection", "Upgrade"), ("upgrade", "websocket")]);
+        assert_eq!(upgrade_target(&req).as_deref(), Some("websocket"));
+    }
+
+    #[test]
+    fn a_connection_token_list_is_parsed_not_substring_matched() {
+        let req = request_with(&[("connection", "keep-alive, Upgrade"), ("upgrade", "websocket")]);
+        assert_eq!(upgrade_target(&req).as_deref(), Some("websocket"));
+
+        // "upgrade-insecure-requests" must not read as an upgrade request.
+        let req = request_with(&[("connection", "keep-alive"), ("upgrade-insecure-requests", "1")]);
+        assert_eq!(upgrade_target(&req), None);
+    }
+
+    #[test]
+    fn an_ordinary_request_is_not_an_upgrade() {
+        let req = request_with(&[("accept", "application/json")]);
+        assert_eq!(upgrade_target(&req), None);
     }
 }

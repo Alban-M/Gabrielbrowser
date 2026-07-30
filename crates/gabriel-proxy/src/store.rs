@@ -93,10 +93,7 @@ impl CaptureStore {
                 source,
             })?;
         }
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
+        let mut file = open_append_private(&self.path)
             .map_err(|source| StoreError::Io { path: self.path.clone(), source })?;
         writeln!(file, "{line}").map_err(|source| StoreError::Io {
             path: self.path.clone(),
@@ -144,6 +141,34 @@ impl CaptureStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(StoreError::Io { path: self.path.clone(), source }),
         }
+    }
+}
+
+/// Open the log for appending with `0600`.
+///
+/// The capture log holds whatever the browser sent — `Cookie` and
+/// `Authorization` headers included — so it is exactly as sensitive as the
+/// session store and the vault, and gets the same permissions.
+fn open_append_private(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(path)?;
+        // `mode` only applies when the file is created, so tighten a log that
+        // an earlier build left readable by everyone.
+        let mode = file.metadata()?.permissions().mode();
+        if mode & 0o077 != 0 {
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::OpenOptions::new().create(true).append(true).open(path)
     }
 }
 
@@ -251,6 +276,34 @@ mod tests {
         store.append(&capture("cap_abc123", "GET", "https://api.test", 200)).unwrap();
         assert_eq!(store.get("cap_abc").unwrap().unwrap().id, "cap_abc123");
         assert!(store.get("nope").unwrap().is_none());
+    }
+
+    /// The log records `Cookie` and `Authorization` headers verbatim. Anything
+    /// less than `0600` hands every local account the developer's sessions.
+    #[cfg(unix)]
+    #[test]
+    fn the_capture_log_is_not_world_readable() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let store = store();
+        store.append(&capture("a", "GET", "https://api.test", 200)).unwrap();
+
+        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "capture log readable by others: {mode:o}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_permissive_log_is_tightened_on_the_next_append() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let store = store();
+        // Simulate a log left behind by a build that wrote 0644.
+        std::fs::write(store.path(), "").unwrap();
+        std::fs::set_permissions(store.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        store.append(&capture("a", "GET", "https://api.test", 200)).unwrap();
+
+        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "stale log left readable: {mode:o}");
     }
 
     #[test]

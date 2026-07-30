@@ -91,6 +91,8 @@ pub struct RunOutcome {
     pub assertions: Vec<AssertionOutcome>,
     /// Variables bound from the response, in declaration order.
     pub captured: Vec<(String, String)>,
+    /// Redirects followed to reach the final response, in order.
+    pub redirects: Vec<Hop>,
 }
 
 impl RunOutcome {
@@ -111,6 +113,56 @@ pub struct SentRequest {
     pub body: Option<String>,
 }
 
+/// One redirect the engine followed. Worth surfacing: "the redirects happen
+/// invisibly" is the reason OAuth flows are painful to debug.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hop {
+    pub status: u16,
+    /// The URL that produced the redirect.
+    pub url: String,
+    /// Where it pointed.
+    pub location: String,
+}
+
+/// Jar name for cookies collected within a single redirect chain.
+const CHAIN_SESSION: &str = "\0chain";
+
+/// Combine two `Cookie` header values, keeping one entry per cookie name.
+/// `fresher` wins on conflict.
+fn merge_cookie_headers(base: Option<&str>, fresher: Option<&str>) -> Option<String> {
+    match (base, fresher) {
+        (None, None) => None,
+        (Some(only), None) | (None, Some(only)) => Some(only.to_string()),
+        (Some(base), Some(fresher)) => {
+            let name_of = |pair: &str| {
+                pair.split_once('=').map(|(n, _)| n.trim().to_string()).unwrap_or_default()
+            };
+            let overridden: Vec<String> = fresher.split("; ").map(name_of).collect();
+            let mut merged: Vec<&str> = fresher.split("; ").collect();
+            for pair in base.split("; ") {
+                if !overridden.contains(&name_of(pair)) {
+                    merged.push(pair);
+                }
+            }
+            Some(merged.join("; "))
+        }
+    }
+}
+
+fn is_redirect(status: u16) -> bool {
+    matches!(status, 301 | 302 | 303 | 307 | 308)
+}
+
+fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    a.scheme() == b.scheme() && a.host_str() == b.host_str() && a.port_or_known_default() == b.port_or_known_default()
+}
+
+/// Headers that must not survive a cross-origin redirect.
+fn strip_credentials(headers: &mut Vec<(String, String)>) {
+    const SENSITIVE: &[&str] = &["authorization", "cookie", "proxy-authorization", "www-authenticate"];
+    headers.retain(|(name, _)| !SENSITIVE.contains(&name.to_ascii_lowercase().as_str()));
+}
+
 /// Reusable HTTP clients and cached OAuth tokens.
 ///
 /// Clients are pooled by their settings so that a collection run reuses
@@ -121,11 +173,12 @@ pub struct Executor {
     oauth_tokens: HashMap<String, CachedToken>,
 }
 
+/// Everything about a client that a request can change. Redirect policy is
+/// deliberately absent — it is always `none`, because `execute` follows the
+/// chain itself.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ClientKey {
     timeout_ms: u64,
-    follow_redirects: bool,
-    max_redirects: usize,
     verify_tls: bool,
     proxy: Option<String>,
 }
@@ -174,57 +227,131 @@ impl Executor {
             header_list.push(("Content-Type".to_string(), content_type));
         }
 
+        // Auth that isn't session-derived is applied once, up front; the session
+        // cookie is recomputed per hop, because the right cookie depends on
+        // where the hop is going.
         self.apply_auth(spec, ctx, &mut url, &mut header_list).await?;
 
         let client = self.client_for(spec)?;
-        let method = reqwest::Method::from_bytes(spec.method.as_bytes()).map_err(|e| {
+        let mut method = reqwest::Method::from_bytes(spec.method.as_bytes()).map_err(|e| {
             EngineError::BadUrl { url: spec.method.clone(), message: e.to_string() }
         })?;
-        let mut request = client.request(method, url.clone());
-        for (key, value) in &header_list {
-            request = request.header(key, value);
-        }
-        if let Some(body) = &body {
-            request = request.body(body.bytes.clone());
-        }
+        let mut body_bytes = body.as_ref().map(|b| b.bytes.clone());
+
+        let sent_url = url.clone();
+        let sent_headers = header_list.clone();
 
         let started = Instant::now();
-        let raw = request
-            .send()
-            .await
-            .map_err(|e| EngineError::Transport(describe_transport_error(&e)))?;
-        let ttfb_ms = started.elapsed().as_millis() as u64;
+        let mut hops: Vec<Hop> = Vec::new();
+        let mut ttfb_ms;
 
-        let status = raw.status();
-        let http_version = format!("{:?}", raw.version());
-        let final_url = raw.url().to_string();
-        let mut response_headers = gabriel_core::model::FieldMap::default();
-        let mut set_cookies = Vec::new();
-        for (name, value) in raw.headers() {
-            let value = value.to_str().unwrap_or("<binary header value>").to_string();
-            if name.as_str().eq_ignore_ascii_case("set-cookie") {
-                set_cookies.push(value.clone());
+        // Cookies set *during* this chain, kept separately from the persistent
+        // session. A login that sets its cookie on a 302 must have that cookie
+        // on the next hop whether or not the request opted into a session, and
+        // whether or not we are persisting anything.
+        let mut chain_jar = SessionStore::new();
+
+        // Redirects are followed here rather than inside the HTTP client. The
+        // client's own follower hides the intermediate responses, and the
+        // intermediate responses are exactly where a login flow puts its
+        // `Set-Cookie` — the whole point of this engine is not to lose those.
+        let (status, http_version, response_headers, bytes, final_url) = loop {
+            let mut request = client.request(method.clone(), url.clone());
+            for (key, value) in &header_list {
+                request = request.header(key, value);
             }
-            response_headers.insert(name.as_str(), value);
-        }
+            // Cookies for *this* hop's host and path.
+            if let Some(cookie) = self.hop_cookie(spec, ctx, &chain_jar, &url) {
+                request = request.header("Cookie", cookie);
+            }
+            if let Some(bytes) = &body_bytes {
+                request = request.body(bytes.clone());
+            }
 
-        let bytes = raw
-            .bytes()
-            .await
-            .map_err(|e| EngineError::Transport(describe_transport_error(&e)))?;
+            let raw = request
+                .send()
+                .await
+                .map_err(|e| EngineError::Transport(describe_transport_error(&e)))?;
+            ttfb_ms = started.elapsed().as_millis() as u64;
+
+            let status = raw.status();
+            let http_version = format!("{:?}", raw.version());
+            let hop_url = raw.url().to_string();
+
+            let mut response_headers = gabriel_core::model::FieldMap::default();
+            let mut set_cookies = Vec::new();
+            for (name, value) in raw.headers() {
+                let value = value.to_str().unwrap_or("<binary header value>").to_string();
+                if name.as_str().eq_ignore_ascii_case("set-cookie") {
+                    set_cookies.push(value.clone());
+                }
+                response_headers.insert(name.as_str(), value);
+            }
+
+            // Record before following, so a cookie set on a 302 is in the jar
+            // by the time the next hop asks for it.
+            if !set_cookies.is_empty() {
+                let host = url.host_str().unwrap_or_default().to_string();
+                let path = url.path().to_string();
+                chain_jar.record_set_cookies(
+                    CHAIN_SESSION,
+                    set_cookies.iter().map(String::as_str),
+                    &host,
+                    &path,
+                );
+                if ctx.record_cookies {
+                    let session = ctx.session.clone();
+                    ctx.sessions.record_set_cookies(
+                        &session,
+                        set_cookies.iter().map(String::as_str),
+                        &host,
+                        &path,
+                    );
+                }
+            }
+
+            let location = response_headers.get_first("location").map(str::to_string);
+            let should_follow = is_redirect(status.as_u16())
+                && spec.settings.follow_redirects
+                && hops.len() < spec.settings.max_redirects
+                && location.is_some();
+
+            if !should_follow {
+                let bytes = raw
+                    .bytes()
+                    .await
+                    .map_err(|e| EngineError::Transport(describe_transport_error(&e)))?;
+                break (status, http_version, response_headers, bytes, hop_url);
+            }
+
+            let location = location.expect("checked above");
+            let next = url.join(&location).map_err(|e| EngineError::BadUrl {
+                url: location.clone(),
+                message: e.to_string(),
+            })?;
+
+            hops.push(Hop { status: status.as_u16(), url: url.to_string(), location: next.to_string() });
+
+            // Credentials must not follow a redirect to another origin. This is
+            // how tokens leak: an open redirect on the target hands your
+            // `Authorization` header to whoever it points at.
+            if !same_origin(&next, &url) {
+                strip_credentials(&mut header_list);
+            }
+
+            // RFC 9110 §15.4: 303 always becomes GET, and 301/302 are
+            // universally treated the same way in practice. 307/308 preserve
+            // the method and the body.
+            if matches!(status.as_u16(), 301 | 302 | 303) && method != reqwest::Method::GET {
+                method = reqwest::Method::GET;
+                body_bytes = None;
+                header_list.retain(|(name, _)| !name.eq_ignore_ascii_case("content-type"));
+            }
+
+            url = next;
+        };
+
         let total_ms = started.elapsed().as_millis() as u64;
-
-        if ctx.record_cookies && !set_cookies.is_empty() {
-            let host = url.host_str().unwrap_or_default().to_string();
-            let path = url.path().to_string();
-            let session = ctx.session.clone();
-            ctx.sessions.record_set_cookies(
-                &session,
-                set_cookies.iter().map(String::as_str),
-                &host,
-                &path,
-            );
-        }
 
         let response = ExecutedResponse {
             status: status.as_u16(),
@@ -246,22 +373,46 @@ impl Executor {
         Ok(RunOutcome {
             sent: SentRequest {
                 method: spec.method.clone(),
-                url: url.to_string(),
-                headers: header_list,
+                url: sent_url.to_string(),
+                headers: sent_headers,
                 body: body.and_then(|b| String::from_utf8(b.bytes).ok()),
             },
             response,
             assertions,
             captured,
+            redirects: hops,
         })
+    }
+
+    /// The `Cookie` header for one hop: the persistent session's cookies when
+    /// the request asked to inherit one, plus anything set earlier in this
+    /// redirect chain. Chain cookies win, being the fresher value.
+    fn hop_cookie(
+        &self,
+        spec: &RequestSpec,
+        ctx: &RunContext<'_, '_>,
+        chain_jar: &SessionStore,
+        url: &reqwest::Url,
+    ) -> Option<String> {
+        let host = url.host_str().unwrap_or_default();
+        let secure = url.scheme() == "https";
+
+        let from_session = match &spec.auth {
+            Some(Auth::Session { session }) => {
+                let name = session.clone().unwrap_or_else(|| ctx.session.clone());
+                ctx.sessions.cookie_header(&name, host, url.path(), secure)
+            }
+            _ => None,
+        };
+        let from_chain = chain_jar.cookie_header(CHAIN_SESSION, host, url.path(), secure);
+
+        merge_cookie_headers(from_session.as_deref(), from_chain.as_deref())
     }
 
     fn client_for(&mut self, spec: &RequestSpec) -> Result<reqwest::Client> {
         let settings = &spec.settings;
         let key = ClientKey {
             timeout_ms: settings.timeout_ms,
-            follow_redirects: settings.follow_redirects,
-            max_redirects: settings.max_redirects,
             verify_tls: settings.verify_tls,
             proxy: settings.proxy.clone(),
         };
@@ -269,15 +420,11 @@ impl Executor {
             return Ok(client.clone());
         }
 
-        let redirect = if settings.follow_redirects {
-            reqwest::redirect::Policy::limited(settings.max_redirects)
-        } else {
-            reqwest::redirect::Policy::none()
-        };
-
         let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_millis(settings.timeout_ms))
-            .redirect(redirect)
+            // `execute` walks the redirect chain itself so it can see, record
+            // and re-send cookies at every hop. The client must not race it.
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("gabriel/", env!("CARGO_PKG_VERSION")))
             // Cookies are handled explicitly through the session store, so the
             // client's own jar stays out of the way.
@@ -375,15 +522,9 @@ impl Executor {
             Auth::None | Auth::Inherit => {}
 
             // The differentiator: send the cookies the browser already holds.
-            Auth::Session { session } => {
-                let name = session.clone().unwrap_or_else(|| ctx.session.clone());
-                let host = url.host_str().unwrap_or_default();
-                let is_secure = url.scheme() == "https";
-                if let Some(cookie) = ctx.sessions.cookie_header(&name, host, url.path(), is_secure)
-                {
-                    headers.push(("Cookie".to_string(), cookie));
-                }
-            }
+            // Applied per hop by `session_cookie`, not here, because a redirect
+            // can move the request to a host with different cookies.
+            Auth::Session { .. } => {}
 
             Auth::Bearer { token } => {
                 let token = ctx.resolver.resolve(token)?;
