@@ -152,6 +152,10 @@ mod tests {
     /// correct escaping contains the same bytes an injection attempt would. The
     /// only meaningful check is whether a POSIX shell hands the value back
     /// unchanged, as a single argument.
+    ///
+    /// Unix only: there is no `sh` on a Windows runner, and `quote` implements
+    /// POSIX quoting, which is what a generated curl command is pasted into.
+    #[cfg(unix)]
     fn shell_roundtrip(quoted: &str) -> String {
         let output = std::process::Command::new("sh")
             .arg("-c")
@@ -162,6 +166,7 @@ mod tests {
         String::from_utf8(output.stdout).expect("utf-8")
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_value_trying_to_escape_the_quoting_survives_a_real_shell_intact() {
         for hostile in [
@@ -185,6 +190,7 @@ mod tests {
         assert!(!std::path::Path::new("/tmp/gabriel-injection-check").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_generated_command_passes_the_body_through_unchanged() {
         let mut req = request("POST", "https://api.test/x");
@@ -199,6 +205,7 @@ mod tests {
         assert_eq!(shell_roundtrip(arg), body);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_url_with_a_quote_is_also_escaped() {
         let url = "https://api.test/?q='or'1'='1";
@@ -223,6 +230,18 @@ mod tests {
         for line in command.lines().take(command.lines().count() - 1) {
             assert!(line.ends_with('\\'), "line does not continue: {line:?}");
         }
+    }
+
+    /// Runs on every platform, so quoting is not left completely untested where
+    /// there is no shell to ask.
+    #[test]
+    fn quoting_wraps_and_escapes_every_embedded_quote() {
+        assert_eq!(quote("plain"), "'plain'");
+        assert_eq!(quote("it's"), r"'it'\''s'");
+        // Two quotes produce two escapes, and the result stays balanced.
+        let quoted = quote("a'b'c");
+        assert_eq!(quoted.matches(r"'\''").count(), 2);
+        assert!(quoted.starts_with('\'') && quoted.ends_with('\''));
     }
 
     #[test]

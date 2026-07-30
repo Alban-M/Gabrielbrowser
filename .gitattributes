@@ -1,2 +1,14 @@
-# Auto detect text files and perform LF normalization
+# Source and text files keep LF in the working tree on every platform.
+# `text=auto` alone would hand Windows checkouts CRLF, which is harmless for
+# rustc but makes any test comparing multi-line output platform-dependent.
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
+*.sh    text eol=lf
+
+# Everything else: let git decide, and never touch binaries.
 * text=auto
+*.png binary
+*.pem binary

@@ -377,19 +377,27 @@ async fn post_token_request(token_url: &str, form: Vec<(&str, String)>) -> Resul
 }
 
 fn open_in_browser(url: &str) {
-    #[cfg(target_os = "macos")]
-    let command = ("open", vec![url]);
-    #[cfg(target_os = "linux")]
-    let command = ("xdg-open", vec![url]);
-    #[cfg(target_os = "windows")]
-    let command = ("cmd", vec!["/C", "start", "", url]);
+    // The three named platforms cover CI and every likely developer machine;
+    // anywhere else falls through and relies on the URL having been printed,
+    // rather than failing to compile.
+    let command: Option<(&str, Vec<&str>)> = if cfg!(target_os = "macos") {
+        Some(("open", vec![url]))
+    } else if cfg!(target_os = "linux") {
+        Some(("xdg-open", vec![url]))
+    } else if cfg!(target_os = "windows") {
+        Some(("cmd", vec!["/C", "start", "", url]))
+    } else {
+        None
+    };
 
     // Failing to open a browser is not fatal — the URL was printed.
-    let _ = std::process::Command::new(command.0)
-        .args(command.1)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+    if let Some((program, args)) = command {
+        let _ = std::process::Command::new(program)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
 }
 
 pub fn parse_query(query: &str) -> std::collections::HashMap<String, String> {

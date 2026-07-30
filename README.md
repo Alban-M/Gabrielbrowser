@@ -188,7 +188,7 @@ before opening a pull request and there should be no surprises.
 ## Building
 
 ```bash
-cargo test          # 314 tests
+cargo test          # 315 tests
 cargo build --release
 ```
 
@@ -225,6 +225,8 @@ Known gaps in what *is* built:
 - **JWT signatures are not verified** — that needs the issuer's key. Gabriel
   decodes, checks expiry, and flags `alg: none`.
 - **The proxy speaks HTTP/1.1** to the browser.
+- **`gabriel curl` emits POSIX quoting.** Paste it into bash, zsh or WSL. It is
+  not correct for `cmd.exe` or PowerShell, whose quoting rules differ.
 - **Looking up an old capture is a scan.** Reads walk backwards from the end of
   the log, so the newest captures are instant and the oldest in a large log is
   not — see [docs/performance.md](docs/performance.md).
