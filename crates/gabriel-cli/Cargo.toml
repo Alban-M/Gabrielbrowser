@@ -1,6 +1,6 @@
 [package]
 name = "gabriel-cli"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "A local-first API workbench: capture live traffic, promote it to editable requests, replay it with the session intact"
 license.workspace = true
@@ -12,11 +12,11 @@ categories = ["command-line-utilities", "development-tools", "web-programming"]
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.4", features = ["derive"] }
-gabriel-collection = { version = "0.1.0", path = "../gabriel-collection" }
-gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
-gabriel-engine = { version = "0.1.0", path = "../gabriel-engine" }
-gabriel-proxy = { version = "0.1.0", path = "../gabriel-proxy" }
-gabriel-vault = { version = "0.1.0", path = "../gabriel-vault" }
+gabriel-collection.workspace = true
+gabriel-core.workspace = true
+gabriel-engine.workspace = true
+gabriel-proxy.workspace = true
+gabriel-vault.workspace = true
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "signal"] }
 toml = "1.1.4"

@@ -44,6 +44,25 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # Shell that only runs during a release is shell that is never exercised
+      # until it matters most. A syntax check is cheap insurance.
+      - name: Shell scripts parse
+        run: |
+          set -euo pipefail
+          for script in install.sh scripts/*.sh; do
+            sh -n "$script" && echo "ok  $script"
+          done
+          bash -n installer-tests/run.sh && echo "ok  installer-tests/run.sh"
+
+      # A release must be able to describe itself. Checking here means the
+      # failure lands on the pull request rather than half way through a tag
+      # build, when artifacts have already been produced.
+      - name: The current version is documented in the changelog
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          ./scripts/release-notes.sh "$version" > /dev/null
+          echo "CHANGELOG.md documents $version"
 
   installer:
     name: installer suite (${{ matrix.os }})

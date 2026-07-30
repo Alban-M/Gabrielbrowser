@@ -1,6 +1,6 @@
 [package]
 name = "gabriel-collection"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "Local-first, Git-native collections on disk for Gabriel"
 license.workspace = true
@@ -10,7 +10,7 @@ keywords = ["http", "api", "proxy", "cli", "testing"]
 categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
-gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
+gabriel-core.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.19"
 toml = "1.1.4"

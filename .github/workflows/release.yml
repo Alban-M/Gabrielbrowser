@@ -52,7 +52,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          staging="gabriel-${{ github.ref_name }}-${{ matrix.target }}"
+          staging="gabriel-${{ matrix.target }}"
           mkdir -p "$staging"
           cp "target/${{ matrix.target }}/release/gabriel" "$staging/"
           cp README.md LICENSE "$staging/"
@@ -63,7 +63,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          staging="gabriel-${{ github.ref_name }}-${{ matrix.target }}"
+          staging="gabriel-${{ matrix.target }}"
           mkdir -p "$staging"
           cp "target/${{ matrix.target }}/release/gabriel.exe" "$staging/"
           cp README.md LICENSE "$staging/"
@@ -93,7 +93,7 @@ jobs:
           cargo cyclonedx --format json --describe binaries -q
           # One SBOM per shipped binary; the bench harness is not shipped.
           mv crates/gabriel-cli/gabriel_bin.cdx.json \
-             "gabriel-${{ github.ref_name }}-sbom.cdx.json"
+             "gabriel-sbom.cdx.json"
       - name: Sanity-check it
         run: |
           python3 - <<'PY'
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
-          path: gabriel-*-sbom.cdx.json
+          path: gabriel-sbom.cdx.json
 
   smoke:
     name: smoke ${{ matrix.target }}
@@ -267,7 +267,7 @@ jobs:
       - name: One checksum file for everything
         run: |
           set -euo pipefail
-          sha256sum gabriel-*.tar.gz gabriel-*.zip gabriel-*-sbom.cdx.json > checksums.txt
+          sha256sum gabriel-*.tar.gz gabriel-*.zip gabriel-sbom.cdx.json > checksums.txt
           cat checksums.txt
 
       - uses: sigstore/cosign-installer@v3
@@ -275,7 +275,7 @@ jobs:
       - name: Sign the artifacts
         run: |
           set -euo pipefail
-          for file in gabriel-*.tar.gz gabriel-*.zip gabriel-*-sbom.cdx.json checksums.txt; do
+          for file in gabriel-*.tar.gz gabriel-*.zip gabriel-sbom.cdx.json checksums.txt; do
             [ -e "$file" ] || continue
             cosign sign-blob --yes \
               --output-signature "$file.sig" \
@@ -284,48 +284,183 @@ jobs:
           done
           ls -la *.sig *.pem
 
+      # Release notes come from CHANGELOG.md rather than a commit list: the
+      # commit list says what was touched, the changelog says what changed for
+      # someone using it. A missing section fails the release rather than
+      # publishing an empty one.
+      - name: Compose the release notes
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          fi
+          ./scripts/release-notes.sh "$version" > NOTES.md
+          printf '\n' >> NOTES.md
+          cat docs/release-notes-footer.md >> NOTES.md
+          echo "--- release notes ---"
+          cat NOTES.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             gabriel-*.tar.gz
             gabriel-*.zip
-            gabriel-*-sbom.cdx.json
+            gabriel-*.sha256
+            gabriel-sbom.cdx.json
             checksums.txt
             *.sig
             *.pem
             install.sh
-          generate_release_notes: true
-          body: |
-            ## Verifying this release
+          body_path: NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
-            Every artifact carries a SHA-256 in `checksums.txt` and a Sigstore
-            signature. The signature is keyless: the certificate binds the
-            artifact to the workflow that built it, so there is no key for
-            anyone to steal.
+  # ── publishing to the public releases repository ────────────────────────────
+  #
+  # The source repository is private; the binaries are not. This job copies the
+  # finished, signed artifacts into a separate public repository that contains
+  # only releases — no source, no history, nothing but what a user downloads.
+  #
+  # It runs after `release`, so nothing reaches the public repository that has
+  # not already passed the smoke gate and been signed. Without the token it
+  # skips loudly rather than failing the workflow: a missing secret should not
+  # invalidate a release that already built correctly.
+  publish-public:
+    name: publish to gabriel-releases
+    needs: [release]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
-            ```sh
-            sha256sum -c checksums.txt --ignore-missing
+      - name: Check the token is configured
+        id: gate
+        env:
+          TOKEN: ${{ secrets.GABRIEL_RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::warning::GABRIEL_RELEASES_TOKEN is not set — binaries stay in the private repository only."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
 
-            cosign verify-blob \
-              --certificate gabriel-<target>.tar.gz.pem \
-              --signature   gabriel-<target>.tar.gz.sig \
-              --certificate-identity-regexp 'https://github.com/.*/Gabrielbrowser/.*' \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              gabriel-<target>.tar.gz
-            ```
+      - name: Rebuild checksums and notes for the public release
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sha256sum gabriel-*.tar.gz gabriel-*.zip gabriel-sbom.cdx.json > checksums.txt
+          ./scripts/release-notes.sh "$version" > NOTES.md
+          printf '\n' >> NOTES.md
+          cat docs/release-notes-footer.md >> NOTES.md
 
-            `gabriel-<version>-sbom.cdx.json` is a CycloneDX bill of materials
-            for the shipped binary.
+      # Signatures are re-fetched, not re-made: the artifacts published here are
+      # byte-identical to the ones signed in the previous job, so their existing
+      # signatures must keep verifying.
+      - name: Refuse to publish anything unsigned
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          missing=0
+          for file in gabriel-*.tar.gz gabriel-*.zip gabriel-sbom.cdx.json; do
+            [ -e "$file" ] || continue
+            if [ ! -e "$file.sig" ] || [ ! -e "$file.pem" ]; then
+              echo "unsigned artifact: $file"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || { echo "refusing to publish unsigned artifacts"; exit 1; }
 
-            ## Installing
+      - name: Create the public release
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GABRIEL_RELEASES_TOKEN }}
+          REPO: ${{ vars.GABRIEL_RELEASES_REPO || 'Alban-M/gabriel-releases' }}
+        run: |
+          set -euo pipefail
+          args=""
+          case "$GITHUB_REF_NAME" in
+            *-*) args="--prerelease" ;;
+          esac
+          # --clobber so re-running a failed publish is safe.
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$REPO" \
+            --title "Gabriel $GITHUB_REF_NAME" \
+            --notes-file NOTES.md \
+            $args \
+            || gh release edit "$GITHUB_REF_NAME" --repo "$REPO" --notes-file NOTES.md
 
-            ```sh
-            curl -fsSL <this release's install.sh URL> | sh
-            ```
+          gh release upload "$GITHUB_REF_NAME" \
+            --repo "$REPO" --clobber \
+            gabriel-*.tar.gz gabriel-*.zip gabriel-*.sha256 \
+            gabriel-sbom.cdx.json checksums.txt *.sig *.pem install.sh
 
-            It verifies the checksum before copying anything and refuses to
-            install a download it cannot verify.
+      # The advertised install command fetches install.sh from the releases
+      # repository's default branch, not from a release asset — a release asset
+      # URL would need the version the user is trying to discover. So the file
+      # on that branch has to track this one.
+      - name: Sync install.sh and the landing page
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GABRIEL_RELEASES_TOKEN }}
+          REPO: ${{ vars.GABRIEL_RELEASES_REPO || 'Alban-M/gabriel-releases' }}
+        run: |
+          set -euo pipefail
+          sync_file() {
+            local_path="$1"
+            remote_path="$2"
+            existing=$(gh api "repos/$REPO/contents/$remote_path" --jq .sha 2>/dev/null || true)
+            args=""
+            if [ -n "$existing" ]; then
+              # Unchanged content makes the API 409; skip rather than fail.
+              remote_body=$(gh api "repos/$REPO/contents/$remote_path" --jq .content 2>/dev/null | tr -d '\n' || true)
+              if [ "$remote_body" = "$(base64 -w0 < "$local_path")" ]; then
+                echo "unchanged: $remote_path"
+                return 0
+              fi
+              args="-f sha=$existing"
+            fi
+            gh api --method PUT "repos/$REPO/contents/$remote_path" \
+              -f message="Update $remote_path for $GITHUB_REF_NAME" \
+              -f content="$(base64 -w0 < "$local_path")" \
+              $args > /dev/null
+            echo "updated: $remote_path"
+          }
+          sync_file install.sh install.sh
+          sync_file docs/releases-repo-README.md README.md
 
-            Binaries are **not** code-signed or notarized yet, so macOS will
-            warn about an unidentified developer. The installer clears the
-            quarantine attribute; Gatekeeper may still ask once.
+      # The last thing that runs is the first thing a user does. Everything
+      # before this proves the artifact is correct; this proves it is reachable
+      # and installable by someone with no access to any of it — anonymously,
+      # through the advertised command, from the public repository.
+      - name: Install it the way a stranger would
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          REPO: ${{ vars.GABRIEL_RELEASES_REPO || 'Alban-M/gabriel-releases' }}
+        run: |
+          set -euo pipefail
+          # A fresh HOME so nothing from this runner's state can help.
+          export HOME="$RUNNER_TEMP/stranger"
+          mkdir -p "$HOME"
+          cd "$HOME"
+
+          # No token: an anonymous fetch, exactly as documented.
+          curl -fsSL "https://raw.githubusercontent.com/$REPO/main/install.sh" -o install.sh
+          sh install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+
+          reported=$(gabriel --version)
+          echo "$reported"
+          echo "$reported" | grep -Fq "${GITHUB_REF_NAME#v}" \
+            || { echo "installed $reported but released $GITHUB_REF_NAME"; exit 1; }
+
+          gabriel doctor
+          gabriel init stranger-check
+          gabriel ls | grep -q example
+          echo "a stranger can install and run this release"

@@ -3,10 +3,17 @@
 Notable changes, newest first. Versions follow [semver](https://semver.org);
 before 1.0 the file format and CLI may still change between minor versions.
 
-## v0.1.0 — unreleased
+## v0.1.0-preview.1 — unreleased
 
-First public preview. The loop works end to end and is tested against live
-servers; the file format is not yet frozen.
+First preview build. The loop works end to end and is tested against live
+servers.
+
+**Why "preview" and not "0.1.0".** Three things are not finished, and a version
+number is a promise: OAuth is only verified against a local IdP, so
+interoperability with Google, GitHub and Auth0 is unknown; there is no desktop
+UI; and nothing here has been run by anyone outside the machine that wrote it.
+The file format may change in response to what preview users hit. When those
+answers exist, the release becomes 0.1.0.
 
 ### The loop
 

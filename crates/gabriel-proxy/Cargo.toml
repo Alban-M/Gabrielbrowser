@@ -1,6 +1,6 @@
 [package]
 name = "gabriel-proxy"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "MITM capture proxy with a per-install CA for Gabriel"
 license.workspace = true
@@ -11,8 +11,8 @@ categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [dependencies]
 futures-util = { version = "0.3.33", default-features = false }
-gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
-gabriel-engine = { version = "0.1.0", path = "../gabriel-engine" }
+gabriel-core.workspace = true
+gabriel-engine.workspace = true
 http-body-util = "0.1.4"
 hyper = { version = "1.11.0", features = ["server", "client", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio", "server", "client-legacy", "http1"] }

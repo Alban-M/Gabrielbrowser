@@ -3,10 +3,17 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-preview.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/Alban-M/Gabrielbrowser"
+
+[workspace.dependencies]
+gabriel-core = { version = "0.1.0-preview.1", path = "crates/gabriel-core" }
+gabriel-collection = { version = "0.1.0-preview.1", path = "crates/gabriel-collection" }
+gabriel-vault = { version = "0.1.0-preview.1", path = "crates/gabriel-vault" }
+gabriel-engine = { version = "0.1.0-preview.1", path = "crates/gabriel-engine" }
+gabriel-proxy = { version = "0.1.0-preview.1", path = "crates/gabriel-proxy" }
 
 [profile.release]
 lto = "thin"

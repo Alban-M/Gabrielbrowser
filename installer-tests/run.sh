@@ -60,7 +60,7 @@ case "$(uname -s)" in
 esac
 
 VERSION="v0.1.0"
-NAME="gabriel-$VERSION-$TARGET"
+NAME="gabriel-$TARGET"
 DIST="$WORK/dist/$VERSION"
 mkdir -p "$DIST/$NAME"
 cp "$BINARY" "$DIST/$NAME/gabriel"
@@ -235,6 +235,21 @@ check "exits non-zero" "[ $code -ne 0 ]"
 check "installs nothing" "[ ! -e '$DIR/gabriel' ]"
 check "the checksum did pass first" "grep -q 'checksum verified' '$WORK/out.txt'"
 restore
+
+# ── 9. latest (the default path, no version given) ──────────────────────────
+
+scenario "latest"
+# What GitHub serves at /releases/latest/download when the API is unreachable,
+# which is the fallback the installer has to survive.
+mkdir -p "$WORK/dist/latest/download"
+cp "$WORK/pristine.tar.gz" "$WORK/dist/latest/download/$NAME.tar.gz"
+cp "$WORK/pristine.sha256" "$WORK/dist/latest/download/$NAME.tar.gz.sha256"
+DIR="$WORK/install-latest"
+code=$(env GABRIEL_BASE_URL="$BASE" GABRIEL_INSTALL_DIR="$DIR" \
+    sh "$INSTALLER" >"$WORK/out.txt" 2>&1; echo $?)
+check "exits 0 with no version given" "[ $code -eq 0 ]"
+check "installs the binary" "[ -x '$DIR/gabriel' ]"
+check "verified the checksum" "grep -q 'checksum verified' '$WORK/out.txt'"
 
 # ── result ──────────────────────────────────────────────────────────────────
 

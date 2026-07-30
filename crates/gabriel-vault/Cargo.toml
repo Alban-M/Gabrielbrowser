@@ -1,6 +1,6 @@
 [package]
 name = "gabriel-vault"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "Encrypted secret store for Gabriel (XChaCha20-Poly1305, OS keychain or Argon2id)"
 license.workspace = true
@@ -12,7 +12,7 @@ categories = ["command-line-utilities", "development-tools", "web-programming"]
 [dependencies]
 argon2 = "0.5.3"
 chacha20poly1305 = "0.11.0"
-gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
+gabriel-core.workspace = true
 keyring = { version = "4.1.5", default-features = false, features = ["apple-native-keyring-store", "v1", "windows-native-keyring-store", "zbus-secret-service-keyring-store"] }
 rand = "0.10.2"
 serde = { version = "1.0.229", features = ["derive"] }

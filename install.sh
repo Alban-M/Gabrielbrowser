@@ -14,7 +14,11 @@
 
 set -eu
 
-BASE_URL="${GABRIEL_BASE_URL:-https://github.com/Alban-M/Gabrielbrowser/releases/download}"
+# Binaries are published from the private source repository into a public
+# releases repository, so this points at the public one. Downloading from the
+# repository that builds Gabriel would 404 for everybody without source access —
+# which is everybody.
+BASE_URL="${GABRIEL_BASE_URL:-https://github.com/Alban-M/gabriel-releases/releases/download}"
 VERSION="${GABRIEL_VERSION:-latest}"
 INSTALL_DIR="${GABRIEL_INSTALL_DIR:-$HOME/.local/bin}"
 
@@ -65,6 +69,30 @@ download() {
     fi
 }
 
+fetch() {
+    _u="$1"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$_u" 2>/dev/null
+    else
+        wget -qO- "$_u" 2>/dev/null
+    fi
+}
+
+# GitHub's /releases/latest redirect deliberately skips prereleases, and every
+# preview build is one — so the advertised `curl … | sh` would 404 for the whole
+# preview period. Ask the API for the newest release of any kind instead, and
+# fall back to the redirect if the API is unreachable or rate-limited.
+resolve_latest() {
+    _repo=$(printf '%s' "$BASE_URL" \
+        | sed -n 's#^https://github\.com/\([^/]*/[^/]*\)/releases/download$#\1#p')
+    [ -n "$_repo" ] || return 1
+
+    fetch "https://api.github.com/repos/$_repo/releases?per_page=1" \
+        | tr ',' '\n' \
+        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        | head -1
+}
+
 verify() {
     _archive="$1"
     _sums="$2"
@@ -111,16 +139,24 @@ tmp=$(mktemp -d 2>/dev/null || mktemp -d -t gabriel)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 if [ "$VERSION" = "latest" ]; then
+    resolved=$(resolve_latest 2>/dev/null || true)
+    if [ -n "$resolved" ]; then
+        VERSION="$resolved"
+        say "  resolved : $VERSION"
+    fi
+fi
+
+if [ "$VERSION" = "latest" ]; then
     # `latest/download` is a redirect GitHub maintains; other hosts may not, so
     # a specific version can always be given instead.
     url_base="${BASE_URL%/download}/latest/download"
-    name="gabriel-latest-$target"
 else
     url_base="$BASE_URL/$VERSION"
-    name="gabriel-$VERSION-$target"
 fi
 
-archive="$name.tar.gz"
+# Assets are named by platform, not by version: the installer has to build this
+# URL before it knows which version it is getting. The version is in the path.
+archive="gabriel-$target.tar.gz"
 say "  source   : $url_base/$archive"
 say ""
 

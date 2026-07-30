@@ -21,11 +21,15 @@ as the engine a desktop workbench would later sit on top of.
 
 ## Install
 
-Once a release is published, macOS and Linux:
+macOS and Linux:
 
 ```bash
-curl -fsSL <release-base>/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Alban-M/gabriel-releases/main/install.sh | sh
 ```
+
+Binaries are published to a separate public repository,
+[gabriel-releases](https://github.com/Alban-M/gabriel-releases) — this one holds
+the source and stays private.
 
 It works out the platform, verifies the SHA-256 before copying anything, clears
 the macOS quarantine flag, and refuses to install a download it cannot verify.
@@ -57,12 +61,12 @@ sha256sum -c checksums.txt --ignore-missing
 cosign verify-blob \
   --certificate gabriel-<target>.tar.gz.pem \
   --signature   gabriel-<target>.tar.gz.sig \
-  --certificate-identity-regexp 'https://github.com/.*/Gabrielbrowser/.*' \
+  --certificate-identity-regexp 'https://github.com/Alban-M/Gabrielbrowser/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   gabriel-<target>.tar.gz
 ```
 
-A CycloneDX SBOM (`gabriel-<version>-sbom.cdx.json`) ships with every release,
+A CycloneDX SBOM (`gabriel-sbom.cdx.json`) ships with every release,
 listing every dependency in the shipped binary with its licence and package URL.
 
 Binaries are not yet code-signed or notarized, so macOS will warn about an
