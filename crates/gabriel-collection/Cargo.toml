@@ -1,0 +1,11 @@
+[package]
+name = "gabriel-collection"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.19"
+toml = "1.1.4"
+walkdir = "2.5.0"

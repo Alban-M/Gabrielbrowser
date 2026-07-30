@@ -1,0 +1,20 @@
+[package]
+name = "gabriel-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gabriel-collection = { version = "0.1.0", path = "../gabriel-collection" }
+gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
+gabriel-engine = { version = "0.1.0", path = "../gabriel-engine" }
+gabriel-proxy = { version = "0.1.0", path = "../gabriel-proxy" }
+gabriel-vault = { version = "0.1.0", path = "../gabriel-vault" }
+http-body-util = "0.1.4"
+hyper = { version = "1.11.0", features = ["server", "http1"] }
+hyper-util = { version = "0.1.20", features = ["tokio", "server"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
+toml = "1.1.4"

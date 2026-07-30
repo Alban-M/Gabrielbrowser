@@ -1,0 +1,19 @@
+[package]
+name = "gabriel-proxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
+gabriel-engine = { version = "0.1.0", path = "../gabriel-engine" }
+http-body-util = "0.1.4"
+hyper = { version = "1.11.0", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1.20", features = ["tokio", "server", "client-legacy", "http1"] }
+rcgen = "0.14.8"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "gzip", "brotli", "charset"] }
+rustls = "0.23.43"
+rustls-pemfile = "2.2.0"
+serde_json = "1.0.151"
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync"] }
+tokio-rustls = "0.26.4"
