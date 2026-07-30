@@ -453,13 +453,10 @@ async fn relay_upgrade(
 
     let upstream_side = hyper::upgrade::on(&mut upstream_response);
     tokio::spawn(async move {
-        match tokio::try_join!(client_side, upstream_side) {
-            Ok((client, upstream)) => {
-                let mut client = TokioIo::new(client);
-                let mut upstream = TokioIo::new(upstream);
-                let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
-            }
-            Err(_) => {}
+        if let Ok((client, upstream)) = tokio::try_join!(client_side, upstream_side) {
+            let mut client = TokioIo::new(client);
+            let mut upstream = TokioIo::new(upstream);
+            let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
         }
     });
 

@@ -256,9 +256,10 @@ mod tests {
             if !stream.is_char_boundary(split) {
                 continue;
             }
+            let bytes = stream.as_bytes();
             let mut parser = Parser::new();
-            let mut events = parser.push(stream[..split].as_bytes());
-            events.extend(parser.push(stream[split..].as_bytes()));
+            let mut events = parser.push(&bytes[..split]);
+            events.extend(parser.push(&bytes[split..]));
             assert_eq!(events.len(), 2, "split at {split} lost an event");
             assert_eq!(events[0].data, "caf\u{e9} \u{2615}", "split at {split} corrupted data");
             assert_eq!(events[1].data, "second");

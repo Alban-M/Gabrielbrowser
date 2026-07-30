@@ -424,7 +424,7 @@ impl Executor {
             // RFC 9110 §15.4: 303 always becomes GET, and 301/302 are
             // universally treated the same way in practice. 307/308 preserve
             // the method and the body.
-            if matches!(status.as_u16(), 301 | 302 | 303) && method != reqwest::Method::GET {
+            if matches!(status.as_u16(), 301..=303) && method != reqwest::Method::GET {
                 method = reqwest::Method::GET;
                 body_bytes = None;
                 header_list.retain(|(name, _)| !name.eq_ignore_ascii_case("content-type"));
@@ -1198,8 +1198,7 @@ mod tests {
 
     #[test]
     fn assertions_are_evaluated_against_the_response() {
-        let asserts = vec![
-            Assertion {
+        let asserts = [Assertion {
                 target: AssertTarget::Status,
                 path: None,
                 op: AssertOp::Eq,
@@ -1210,8 +1209,7 @@ mod tests {
                 path: Some("ok".into()),
                 op: AssertOp::Eq,
                 value: Some(toml::Value::Boolean(true)),
-            },
-        ];
+            }];
         let response =
             response_with(200, &[("Content-Type", "application/json")], r#"{"ok":true}"#);
         let outcomes: Vec<_> = asserts.iter().map(|a| assertion::evaluate(a, &response)).collect();

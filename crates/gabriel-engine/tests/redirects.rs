@@ -152,7 +152,7 @@ async fn a_cookie_set_on_a_redirect_is_recorded_in_the_session() {
     let mut sessions = SessionStore::new();
     run(&RequestSpec::new("GET", format!("http://{addr}/login")), &mut sessions).await;
 
-    let host = format!("127.0.0.1");
+    let host = "127.0.0.1".to_string();
     assert_eq!(
         sessions.cookie_header("default", &host, "/", false).as_deref(),
         Some("sid=persisted"),

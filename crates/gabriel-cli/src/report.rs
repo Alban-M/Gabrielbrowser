@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn html_shows_the_summary_and_marks_failures() {
         let page = to_html(&report(), &plain());
-        assert!(page.contains("demo — <span class=\"pass\">passed</span>") == false);
+        assert!(!page.contains("demo — <span class=\"pass\">passed</span>"));
         assert!(page.contains(">failed<"), "the run should read as failed:\n{page}");
         assert!(page.contains("staging"), "environment should be shown");
         // Failures are expanded; passes are not.

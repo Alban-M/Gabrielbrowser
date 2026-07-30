@@ -150,7 +150,7 @@ impl Jwt {
     /// A time claim as epoch milliseconds.
     pub fn time_claim_ms(&self, claim: &str) -> Option<u64> {
         let seconds = self.payload.get(claim)?.as_f64()?;
-        (seconds > 0.0).then(|| (seconds * 1000.0) as u64)
+        (seconds > 0.0).then_some((seconds * 1000.0) as u64)
     }
 
     /// Milliseconds until `exp`, negative once it has passed.

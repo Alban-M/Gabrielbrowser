@@ -117,10 +117,12 @@ async fn spawn_idp(
 
 /// Both halves of the test run in one process, so the challenge map is looked up
 /// by the IdP's address rather than passed around.
-static REGISTRY: Mutex<Vec<(SocketAddr, Arc<Mutex<HashMap<String, String>>>)>> =
-    Mutex::new(Vec::new());
+/// Authorization code → the challenge presented when it was issued.
+type ChallengeMap = Arc<Mutex<HashMap<String, String>>>;
 
-fn issued_handle(addr: SocketAddr) -> Arc<Mutex<HashMap<String, String>>> {
+static REGISTRY: Mutex<Vec<(SocketAddr, ChallengeMap)>> = Mutex::new(Vec::new());
+
+fn issued_handle(addr: SocketAddr) -> ChallengeMap {
     let mut registry = REGISTRY.lock().unwrap();
     if let Some((_, existing)) = registry.iter().find(|(a, _)| *a == addr) {
         return existing.clone();

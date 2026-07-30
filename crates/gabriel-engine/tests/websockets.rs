@@ -50,6 +50,9 @@ async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (Sock
                 use futures_util::{SinkExt as _, StreamExt as _};
 
                 // Record the request headers, and negotiate a subprotocol.
+                // The callback's error type is the full HTTP response, which
+                // clippy rightly notes is large; it is never constructed here.
+                #[allow(clippy::result_large_err)]
                 let callback = |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                 mut response: tokio_tungstenite::tungstenite::handshake::server::Response| {
                     let mut headers = recorder.lock().unwrap();

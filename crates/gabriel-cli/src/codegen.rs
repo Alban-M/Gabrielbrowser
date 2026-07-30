@@ -41,7 +41,7 @@ pub fn to_curl(request: &SentRequest, redactor: &Redactor, multiline: bool) -> S
         parts.push(format!("--data-raw {}", quote(&redactor.apply(body))));
     }
 
-    parts.join(&joiner)
+    parts.join(joiner)
 }
 
 /// Wrap in single quotes for a POSIX shell.
