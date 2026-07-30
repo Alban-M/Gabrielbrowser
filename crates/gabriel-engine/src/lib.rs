@@ -173,6 +173,47 @@ fn strip_credentials(headers: &mut Vec<(String, String)>) {
     headers.retain(|(name, _)| !SENSITIVE.contains(&name.to_ascii_lowercase().as_str()));
 }
 
+/// Outcome of a streamed request: the response head, plus what arrived before
+/// the caller stopped listening.
+#[derive(Debug, Clone)]
+pub struct StreamOutcome {
+    pub sent: SentRequest,
+    pub status: u16,
+    pub status_text: String,
+    pub headers: gabriel_core::model::FieldMap,
+    pub events: Vec<gabriel_core::sse::Event>,
+    /// Why the stream stopped.
+    pub ended: StreamEnd,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamEnd {
+    /// The server closed the stream.
+    Closed,
+    /// The event limit was reached.
+    LimitReached,
+    /// The time budget expired.
+    TimedOut,
+    /// The response was not an event stream, so there was nothing to follow.
+    NotAStream,
+}
+
+/// How long to follow a stream, and how much of it to keep.
+#[derive(Debug, Clone)]
+pub struct StreamLimits {
+    pub max_events: usize,
+    pub max_duration: Duration,
+}
+
+impl Default for StreamLimits {
+    fn default() -> Self {
+        // A stream with no natural end needs *some* bound, or the CLI hangs
+        // until the user reaches for Ctrl-C.
+        StreamLimits { max_events: 100, max_duration: Duration::from_secs(30) }
+    }
+}
+
 /// Reusable HTTP clients and cached OAuth tokens.
 ///
 /// Clients are pooled by their settings so that a collection run reuses
@@ -191,6 +232,8 @@ struct ClientKey {
     timeout_ms: u64,
     verify_tls: bool,
     proxy: Option<String>,
+    /// Streaming clients have no total-request timeout; see `client_for`.
+    streaming: bool,
     /// Fingerprint of the client certificate, so a pooled client is never
     /// handed back presenting somebody else's identity — or none at all.
     identity: Option<u64>,
@@ -441,24 +484,280 @@ impl Executor {
         merge_cookie_headers(from_session.as_deref(), from_chain.as_deref())
     }
 
+    /// Send a request and follow its response as an event stream.
+    ///
+    /// Redirects, auth and templating work exactly as in [`execute`]; the
+    /// difference is that the body is consumed incrementally and parsed as
+    /// server-sent events rather than collected. `on_event` is called as each
+    /// event is dispatched, so a caller can print them live.
+    pub async fn execute_stream(
+        &mut self,
+        spec: &RequestSpec,
+        ctx: &mut RunContext<'_, '_>,
+        limits: &StreamLimits,
+        mut on_event: impl FnMut(&gabriel_core::sse::Event),
+    ) -> Result<StreamOutcome> {
+        use futures_util::StreamExt as _;
+
+        let resolved_url = ctx.resolver.resolve(&spec.url)?;
+        let mut url = reqwest::Url::parse(&resolved_url).map_err(|e| EngineError::BadUrl {
+            url: resolved_url.clone(),
+            message: e.to_string(),
+        })?;
+
+        let query = ctx.resolver.resolve_map(&spec.query)?;
+        if !query.is_empty() {
+            let mut pairs = url.query_pairs_mut();
+            for (key, value) in query.iter_pairs() {
+                pairs.append_pair(key, value);
+            }
+        }
+
+        let headers = ctx.resolver.resolve_map(&spec.headers)?;
+        let mut header_list: Vec<(String, String)> = headers
+            .iter_pairs()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        // Ask for a stream unless the request already said what it wants.
+        if !headers.contains_key("accept") {
+            header_list.push(("Accept".to_string(), "text/event-stream".to_string()));
+        }
+
+        let body = self.build_body(spec, ctx)?;
+        if let Some(content_type) = body.as_ref().and_then(|b| b.content_type.clone())
+            && !headers.contains_key("content-type")
+        {
+            header_list.push(("Content-Type".to_string(), content_type));
+        }
+        self.apply_auth(spec, ctx, &mut url, &mut header_list).await?;
+
+        let identity = resolve_identity(spec, ctx)?;
+        let client = self.client_for_mode(spec, identity.as_ref(), true)?;
+        let method = reqwest::Method::from_bytes(spec.method.as_bytes()).map_err(|e| {
+            EngineError::BadUrl { url: spec.method.clone(), message: e.to_string() }
+        })?;
+
+        let mut request = client.request(method, url.clone());
+        for (key, value) in &header_list {
+            request = request.header(key, value);
+        }
+        let chain_jar = SessionStore::new();
+        if let Some(cookie) = self.hop_cookie(spec, ctx, &chain_jar, &url) {
+            request = request.header("Cookie", cookie);
+        }
+        if let Some(body) = &body {
+            request = request.body(body.bytes.clone());
+        }
+
+        let started = Instant::now();
+        let response = request
+            .send()
+            .await
+            .map_err(|e| EngineError::Transport(describe_transport_error(&e)))?;
+
+        let status = response.status();
+        let mut response_headers = gabriel_core::model::FieldMap::default();
+        for (name, value) in response.headers() {
+            response_headers
+                .insert(name.as_str(), value.to_str().unwrap_or("<binary header value>"));
+        }
+
+        let sent = SentRequest {
+            method: spec.method.clone(),
+            url: url.to_string(),
+            headers: header_list,
+            body: body.and_then(|b| String::from_utf8(b.bytes).ok()),
+        };
+
+        let is_stream = response_headers
+            .get_first("content-type")
+            .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("text/event-stream"));
+
+        let mut outcome = StreamOutcome {
+            sent,
+            status: status.as_u16(),
+            status_text: status.canonical_reason().unwrap_or("").to_string(),
+            headers: response_headers,
+            events: Vec::new(),
+            ended: if is_stream { StreamEnd::Closed } else { StreamEnd::NotAStream },
+            duration_ms: 0,
+        };
+
+        // A non-stream response (an error page, say) has no events to follow;
+        // report it rather than waiting for the timeout.
+        if !is_stream {
+            outcome.duration_ms = started.elapsed().as_millis() as u64;
+            return Ok(outcome);
+        }
+
+        let mut parser = gabriel_core::sse::Parser::new();
+        let mut stream = response.bytes_stream();
+
+        loop {
+            let remaining = limits.max_duration.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                outcome.ended = StreamEnd::TimedOut;
+                break;
+            }
+            match tokio::time::timeout(remaining, stream.next()).await {
+                Err(_) => {
+                    outcome.ended = StreamEnd::TimedOut;
+                    break;
+                }
+                Ok(None) => {
+                    // Stream closed; surface a half-finished event if there is one.
+                    if let Some(event) = parser.finish() {
+                        on_event(&event);
+                        outcome.events.push(event);
+                    }
+                    outcome.ended = StreamEnd::Closed;
+                    break;
+                }
+                Ok(Some(Err(e))) => {
+                    return Err(EngineError::Transport(describe_transport_error(&e)));
+                }
+                Ok(Some(Ok(chunk))) => {
+                    for event in parser.push(&chunk) {
+                        on_event(&event);
+                        outcome.events.push(event);
+                        if outcome.events.len() >= limits.max_events {
+                            outcome.ended = StreamEnd::LimitReached;
+                            outcome.duration_ms = started.elapsed().as_millis() as u64;
+                            return Ok(outcome);
+                        }
+                    }
+                }
+            }
+        }
+
+        outcome.duration_ms = started.elapsed().as_millis() as u64;
+        Ok(outcome)
+    }
+
+    /// Resolve a request without sending it.
+    ///
+    /// Everything templating, header and body related is applied; the only thing
+    /// left out is an OAuth2 token, because fetching one is a network call and a
+    /// caller asking to *see* a request has not asked to authenticate. The
+    /// returned flag says whether that happened, so the caller can say so.
+    pub fn prepare(
+        &mut self,
+        spec: &RequestSpec,
+        ctx: &mut RunContext<'_, '_>,
+    ) -> Result<(SentRequest, bool)> {
+        let resolved_url = ctx.resolver.resolve(&spec.url)?;
+        let mut url = reqwest::Url::parse(&resolved_url).map_err(|e| EngineError::BadUrl {
+            url: resolved_url.clone(),
+            message: e.to_string(),
+        })?;
+
+        let query = ctx.resolver.resolve_map(&spec.query)?;
+        if !query.is_empty() {
+            let mut pairs = url.query_pairs_mut();
+            for (key, value) in query.iter_pairs() {
+                pairs.append_pair(key, value);
+            }
+        }
+
+        let headers = ctx.resolver.resolve_map(&spec.headers)?;
+        let mut header_list: Vec<(String, String)> = headers
+            .iter_pairs()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+
+        let body = self.build_body(spec, ctx)?;
+        if let Some(content_type) = body.as_ref().and_then(|b| b.content_type.clone())
+            && !headers.contains_key("content-type")
+        {
+            header_list.push(("Content-Type".to_string(), content_type));
+        }
+
+        // The synchronous subset of `apply_auth`.
+        let mut oauth_pending = false;
+        match &spec.auth {
+            None | Some(Auth::None) | Some(Auth::Inherit) => {}
+            Some(Auth::Session { session }) => {
+                let name = session.clone().unwrap_or_else(|| ctx.session.clone());
+                if let Some(cookie) = ctx.sessions.cookie_header(
+                    &name,
+                    url.host_str().unwrap_or_default(),
+                    url.path(),
+                    url.scheme() == "https",
+                ) {
+                    header_list.push(("Cookie".to_string(), cookie));
+                }
+            }
+            Some(Auth::Bearer { token }) => {
+                let token = ctx.resolver.resolve(token)?;
+                header_list.push(("Authorization".to_string(), format!("Bearer {token}")));
+            }
+            Some(Auth::Basic { username, password }) => {
+                let username = ctx.resolver.resolve(username)?;
+                let password = ctx.resolver.resolve(password)?;
+                let encoded = gabriel_core::b64_encode(format!("{username}:{password}").as_bytes());
+                header_list.push(("Authorization".to_string(), format!("Basic {encoded}")));
+            }
+            Some(Auth::ApiKey { key, value, location }) => {
+                let key = ctx.resolver.resolve(key)?;
+                let value = ctx.resolver.resolve(value)?;
+                match location {
+                    ApiKeyLocation::Header => header_list.push((key, value)),
+                    ApiKeyLocation::Query => {
+                        url.query_pairs_mut().append_pair(&key, &value);
+                    }
+                }
+            }
+            Some(Auth::OAuth2(_)) => oauth_pending = true,
+        }
+
+        Ok((
+            SentRequest {
+                method: spec.method.clone(),
+                url: url.to_string(),
+                headers: header_list,
+                body: body.and_then(|b| String::from_utf8(b.bytes).ok()),
+            },
+            oauth_pending,
+        ))
+    }
+
     fn client_for(
         &mut self,
         spec: &RequestSpec,
         identity: Option<&IdentityMaterial>,
+    ) -> Result<reqwest::Client> {
+        self.client_for_mode(spec, identity, false)
+    }
+
+    fn client_for_mode(
+        &mut self,
+        spec: &RequestSpec,
+        identity: Option<&IdentityMaterial>,
+        streaming: bool,
     ) -> Result<reqwest::Client> {
         let settings = &spec.settings;
         let key = ClientKey {
             timeout_ms: settings.timeout_ms,
             verify_tls: settings.verify_tls,
             proxy: settings.proxy.clone(),
+            streaming,
             identity: identity.map(|i| i.fingerprint),
         };
         if let Some(client) = self.clients.get(&key) {
             return Ok(client.clone());
         }
 
-        let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_millis(settings.timeout_ms))
+        let mut builder = reqwest::Client::builder();
+        if streaming {
+            // A total-request timeout would kill a healthy stream the moment it
+            // outlived the budget meant for a normal request. Connecting is
+            // still bounded, and how long to *follow* a stream is governed by
+            // `StreamLimits`.
+            builder = builder.connect_timeout(Duration::from_millis(settings.timeout_ms));
+        } else {
+            builder = builder.timeout(Duration::from_millis(settings.timeout_ms));
+        }
+        builder = builder
             // `execute` walks the redirect chain itself so it can see, record
             // and re-send cookies at every hop. The client must not race it.
             .redirect(reqwest::redirect::Policy::none())
@@ -1006,12 +1305,14 @@ mod tests {
                 timeout_ms: 0,
                 verify_tls: true,
                 proxy: None,
+                streaming: false,
                 identity: Some(one.fingerprint),
             },
             ClientKey {
                 timeout_ms: 0,
                 verify_tls: true,
                 proxy: None,
+                streaming: false,
                 identity: Some(two.fingerprint),
             }
         );

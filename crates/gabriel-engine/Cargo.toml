@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+futures-util = { version = "0.3.33", default-features = false }
 gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "json", "gzip", "brotli", "charset", "multipart", "form"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "json", "gzip", "brotli", "charset", "multipart", "form", "stream"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.19"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs", "time"] }
 toml = "1.1.4"
 
 [dev-dependencies]

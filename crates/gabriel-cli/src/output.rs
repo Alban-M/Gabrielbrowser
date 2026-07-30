@@ -306,11 +306,32 @@ fn print_change(change: &Change, style: &Style) {
     }
 }
 
+/// Durations at whatever scale they arrive: request timings are milliseconds,
+/// token lifetimes are hours. "899.36s" is technically correct and useless.
 pub fn format_duration(ms: u64) -> String {
-    if ms < 1000 {
-        format!("{ms}ms")
-    } else {
-        format!("{:.2}s", ms as f64 / 1000.0)
+    const SECOND: u64 = 1000;
+    const MINUTE: u64 = 60 * SECOND;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+
+    match ms {
+        ms if ms < SECOND => format!("{ms}ms"),
+        ms if ms < MINUTE => format!("{:.2}s", ms as f64 / SECOND as f64),
+        ms if ms < HOUR => {
+            let minutes = ms / MINUTE;
+            let seconds = (ms % MINUTE) / SECOND;
+            if seconds == 0 { format!("{minutes}m") } else { format!("{minutes}m {seconds}s") }
+        }
+        ms if ms < DAY => {
+            let hours = ms / HOUR;
+            let minutes = (ms % HOUR) / MINUTE;
+            if minutes == 0 { format!("{hours}h") } else { format!("{hours}h {minutes}m") }
+        }
+        ms => {
+            let days = ms / DAY;
+            let hours = (ms % DAY) / HOUR;
+            if hours == 0 { format!("{days}d") } else { format!("{days}d {hours}h") }
+        }
     }
 }
 
@@ -527,5 +548,16 @@ mod tests {
     fn durations_switch_units() {
         assert_eq!(format_duration(999), "999ms");
         assert_eq!(format_duration(1500), "1.50s");
+        // Two decimals means the last millisecond before a minute rounds up;
+        // harmless, and cheaper than special-casing the boundary.
+        assert_eq!(format_duration(59_999), "60.00s");
+        assert_eq!(format_duration(59_500), "59.50s");
+        // A token lifetime should read as minutes, not "899.36s".
+        assert_eq!(format_duration(899_360), "14m 59s");
+        assert_eq!(format_duration(900_000), "15m");
+        assert_eq!(format_duration(3_600_000), "1h");
+        assert_eq!(format_duration(5_400_000), "1h 30m");
+        assert_eq!(format_duration(86_400_000), "1d");
+        assert_eq!(format_duration(90_000_000), "1d 1h");
     }
 }

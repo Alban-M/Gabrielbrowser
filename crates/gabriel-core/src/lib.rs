@@ -9,8 +9,10 @@ pub mod capture;
 pub mod diff;
 pub mod error;
 pub mod jsonpath;
+pub mod jwt;
 pub mod model;
 pub mod response;
+pub mod sse;
 pub mod vars;
 
 pub use error::{Error, Result};

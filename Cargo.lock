@@ -1029,6 +1029,7 @@ dependencies = [
 name = "gabriel-engine"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "gabriel-core",
  "rcgen",
  "reqwest",

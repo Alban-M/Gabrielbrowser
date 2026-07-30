@@ -9,6 +9,7 @@
 //! gabriel run <name>             # replay it, still authenticated
 //! ```
 
+mod codegen;
 mod output;
 mod support;
 
@@ -87,6 +88,38 @@ enum Command {
     #[command(subcommand)]
     Session(SessionCommand),
 
+    /// Decode and inspect a JWT locally, without sending it anywhere.
+    Jwt {
+        /// The token, `-` to read stdin, or omitted with --capture.
+        token: Option<String>,
+        /// Pull the token out of a capture's Authorization header or body.
+        #[arg(long, value_name = "ID")]
+        capture: Option<String>,
+        /// Print the decoded header and payload as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Print a request as a curl command.
+    Curl {
+        /// Request name, id, or a unique suffix.
+        request: String,
+        #[arg(short, long)]
+        env: Option<String>,
+        /// Override a variable: `--var user_id=7`. Repeatable.
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        vars: Vec<String>,
+        /// Session to take cookies from for `auth = "session"`.
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Include credentials instead of masking them.
+        #[arg(long)]
+        show_secrets: bool,
+        /// Print on one line instead of wrapping with continuations.
+        #[arg(long)]
+        one_line: bool,
+    },
+
     /// List environments.
     Env,
 
@@ -140,6 +173,19 @@ struct RunArgs {
     /// Truncate the printed body at this many characters.
     #[arg(long, default_value_t = 4000)]
     body_limit: usize,
+
+    /// Follow the response as a server-sent event stream, printing events as
+    /// they arrive.
+    #[arg(long, conflicts_with = "all")]
+    stream: bool,
+
+    /// Stop after this many events.
+    #[arg(long, default_value_t = 100, requires = "stream")]
+    events: usize,
+
+    /// Stop following after this many seconds.
+    #[arg(long, default_value_t = 30, requires = "stream")]
+    stream_timeout: u64,
 }
 
 #[derive(Subcommand)]
@@ -435,6 +481,14 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             Ok(Outcome::Success)
         }
 
+        Command::Jwt { token, capture, json } => jwt_command(token, capture, json, &start_dir, style),
+
+        Command::Curl { request, env, vars, session, show_secrets, one_line } => curl_command(
+            CurlArgs { request, env, vars, session, show_secrets, one_line },
+            &start_dir,
+            style,
+        ),
+
         Command::Env => {
             let collection = open_collection(&start_dir)?;
             let names = collection.environment_names();
@@ -470,6 +524,186 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             Ok(Outcome::Success)
         }
     }
+}
+
+struct CurlArgs {
+    request: String,
+    env: Option<String>,
+    vars: Vec<String>,
+    session: Option<String>,
+    show_secrets: bool,
+    one_line: bool,
+}
+
+fn jwt_command(
+    token: Option<String>,
+    capture: Option<String>,
+    as_json: bool,
+    start_dir: &Path,
+    style: &Style,
+) -> Result<Outcome> {
+    use gabriel_core::jwt::Jwt;
+    use std::io::Read as _;
+
+    let raw = match (token.as_deref(), capture.as_deref()) {
+        (Some("-"), _) => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input).context("reading the token from stdin")?;
+            input
+        }
+        (Some(token), _) => token.to_string(),
+        (None, Some(id)) => {
+            // Pull it out of recorded traffic, so the developer never has to
+            // select and copy a live credential.
+            let collection = open_collection(start_dir)?;
+            let store = CaptureStore::new(collection.captures_path());
+            let capture = store
+                .get(id)?
+                .with_context(|| format!("no capture matches `{id}`"))?;
+
+            let from_headers = capture
+                .request
+                .headers
+                .iter_pairs()
+                .find_map(|(_, value)| gabriel_core::jwt::find_in(value).map(str::to_string));
+            let from_body = capture
+                .response
+                .as_ref()
+                .and_then(|r| r.body.as_ref())
+                .and_then(|b| b.as_text())
+                .and_then(|text| gabriel_core::jwt::find_in(text).map(str::to_string));
+
+            from_headers
+                .or(from_body)
+                .with_context(|| format!("no JWT found in capture `{id}`"))?
+        }
+        (None, None) => bail!("pass a token, `-` to read stdin, or --capture <id>"),
+    };
+
+    let jwt = Jwt::decode(&raw)?;
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "header": jwt.header,
+                "payload": jwt.payload,
+            }))?
+        );
+        return Ok(Outcome::Success);
+    }
+
+    let now = gabriel_core::now_ms();
+    println!(
+        "{} {}{}",
+        style.bold("algorithm"),
+        jwt.algorithm().unwrap_or("<none declared>"),
+        jwt.key_id().map(|k| format!("  kid {k}")).unwrap_or_default()
+    );
+
+    for (name, value) in jwt.notable_claims() {
+        println!("{:<10} {}", style.dim(name), style.safe(&value));
+    }
+
+    for (label, claim) in [("issued", "iat"), ("not before", "nbf"), ("expires", "exp")] {
+        if let Some(ms) = jwt.time_claim_ms(claim) {
+            let relative = match jwt.expires_in_ms(now) {
+                Some(remaining) if claim == "exp" && remaining > 0 => {
+                    format!("  in {}", output::format_duration(remaining as u64))
+                }
+                Some(remaining) if claim == "exp" => {
+                    format!("  {} ago", output::format_duration((-remaining) as u64))
+                }
+                _ => String::new(),
+            };
+            println!(
+                "{:<10} {}{}",
+                style.dim(label),
+                gabriel_core::format_iso8601(ms),
+                style.dim(&relative)
+            );
+        }
+    }
+
+    if !jwt.warnings.is_empty() {
+        println!();
+        for warning in &jwt.warnings {
+            let marker = if warning.is_serious() { style.red("!") } else { style.yellow("·") };
+            println!("{marker} {}", warning.message());
+        }
+    }
+
+    println!();
+    println!(
+        "{}",
+        style.dim("signature not verified — that needs the issuer's key, which Gabriel does not have")
+    );
+
+    // A serious finding is worth a non-zero exit so a script can gate on it.
+    Ok(if jwt.warnings.iter().any(|w| w.is_serious()) {
+        Outcome::AssertionsFailed
+    } else {
+        Outcome::Success
+    })
+}
+
+fn curl_command(args: CurlArgs, start_dir: &Path, style: &Style) -> Result<Outcome> {
+    let collection = open_collection(start_dir)?;
+    let entry = collection.find(&args.request)?.clone();
+
+    let env_name = match (&args.env, collection.environment_names().as_slice()) {
+        (Some(name), _) => Some(name.clone()),
+        (None, [only]) => Some(only.clone()),
+        (None, _) => None,
+    };
+    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+
+    let secrets = LazySecrets::new(collection.vault_path(), KeySource::from_environment());
+    let mut resolver = Resolver::new()
+        .with_secrets(&secrets)
+        .with_vars(collection.variables_for(environment.as_ref()));
+    for assignment in &args.vars {
+        let (key, value) = support::parse_assignment(assignment)?;
+        resolver.set(key, value);
+    }
+
+    let mut sessions = SessionStore::load(collection.sessions_path())?;
+    let session = args
+        .session
+        .clone()
+        .unwrap_or_else(|| gabriel_engine::session::DEFAULT_SESSION.to_string());
+
+    let spec = collection.apply_defaults(&entry.spec);
+    let mut executor = Executor::new();
+    let (prepared, oauth_pending) = {
+        let mut ctx = RunContext::new(&mut resolver, &mut sessions)
+            .with_session(session)
+            .with_base_dir(collection.root());
+        executor.prepare(&spec, &mut ctx)?
+    };
+
+    let redactor = if args.show_secrets {
+        Redactor::default()
+    } else {
+        Redactor::new(resolver.used_secrets())
+    };
+
+    if oauth_pending {
+        eprintln!(
+            "{} this request uses OAuth2; the Authorization header is omitted because \
+             generating it would require fetching a token",
+            style.yellow("note:")
+        );
+    }
+    if !args.show_secrets && !redactor.is_empty() {
+        eprintln!(
+            "{} credentials are masked — pass --show-secrets for a runnable command",
+            style.dim("note:")
+        );
+    }
+
+    println!("{}", codegen::to_curl(&prepared, &redactor, !args.one_line));
+    Ok(Outcome::Success)
 }
 
 fn open_collection(dir: &Path) -> Result<Collection> {
@@ -519,6 +753,79 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
     let mut executor = Executor::new();
     let mut all_passed = true;
     let mut errors = 0usize;
+
+    // Streaming is a single-request mode: following two event streams at once
+    // and interleaving their output would be unreadable.
+    if args.stream {
+        let entry = &targets[0];
+        let spec = collection.apply_defaults(&entry.spec);
+        let limits = gabriel_engine::StreamLimits {
+            max_events: args.events,
+            max_duration: std::time::Duration::from_secs(args.stream_timeout),
+        };
+        let redactor_secrets = resolver.used_secrets();
+
+        let outcome = {
+            let mut ctx = RunContext::new(&mut resolver, &mut sessions)
+                .with_session(session.clone())
+                .with_base_dir(collection.root());
+            let stream_style = style;
+            let redactor = if args.show_secrets {
+                Redactor::default()
+            } else {
+                Redactor::new(redactor_secrets)
+            };
+            let mut index = 0usize;
+            runtime
+                .block_on(executor.execute_stream(&spec, &mut ctx, &limits, |event| {
+                    index += 1;
+                    let name = event.name.as_deref().unwrap_or("message");
+                    // Pretty-print JSON payloads; most streaming APIs send them.
+                    let data = match event.json() {
+                        Some(json) => serde_json::to_string(&json).unwrap_or_else(|_| event.data.clone()),
+                        None => event.data.clone(),
+                    };
+                    println!(
+                        "{} {} {}",
+                        stream_style.dim(&format!("{index:>4}")),
+                        stream_style.cyan(name),
+                        stream_style.safe(&redactor.apply(&data))
+                    );
+                }))
+                .with_context(|| format!("streaming `{}`", entry.id))?
+        };
+
+        println!();
+        println!(
+            "{} {} {} {} events in {}",
+            style.status(outcome.status),
+            style.dim(&outcome.status_text),
+            style.dim("·"),
+            outcome.events.len(),
+            output::format_duration(outcome.duration_ms)
+        );
+        match outcome.ended {
+            gabriel_engine::StreamEnd::Closed => {}
+            gabriel_engine::StreamEnd::LimitReached => println!(
+                "{}",
+                style.dim(&format!("stopped at --events {}", args.events))
+            ),
+            gabriel_engine::StreamEnd::TimedOut => println!(
+                "{}",
+                style.dim(&format!("stopped after --stream-timeout {}s", args.stream_timeout))
+            ),
+            gabriel_engine::StreamEnd::NotAStream => {
+                let content_type = outcome.headers.get_first("content-type").unwrap_or("none");
+                println!(
+                    "{} content-type is {content_type}, not text/event-stream — run without --stream",
+                    style.yellow("note:")
+                );
+            }
+        }
+
+        sessions.save()?;
+        return Ok(Outcome::Success);
+    }
 
     for (index, entry) in targets.iter().enumerate() {
         let spec = collection.apply_defaults(&entry.spec);

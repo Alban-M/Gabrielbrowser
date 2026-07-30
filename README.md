@@ -20,6 +20,9 @@ gabriel capture ls                 # find the request you care about
 gabriel promote <capture-id>       # it becomes an editable, committable file
 gabriel run <name>                 # replay it — still authenticated
 gabriel diff <id-a> <id-b>         # what changed between two responses
+gabriel run <name> --stream        # follow a server-sent event stream live
+gabriel jwt <token>                # decode and inspect a JWT, locally
+gabriel curl <name>                # print the request as a curl command
 ```
 
 The promotion step is the point. A captured request becomes a file with **no
@@ -114,7 +117,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 196 tests
+cargo test          # 246 tests
 cargo build --release
 ```
 
@@ -144,6 +147,10 @@ Known gaps in what *is* built:
   been verified by inspection.
 - **OAuth2** covers the client-credentials and password grants, not the
   authorization-code redirect flow.
+- **No WebSocket client.** The proxy relays upgrades; the engine cannot originate
+  a WebSocket connection. SSE *is* supported (`run --stream`).
+- **JWT signatures are not verified** — that needs the issuer's key. Gabriel
+  decodes, checks expiry, and flags `alg: none`.
 - **The proxy speaks HTTP/1.1** to the browser.
 - **Looking up an old capture is a scan.** Reads walk backwards from the end of
   the log, so the newest captures are instant and the oldest in a large log is
