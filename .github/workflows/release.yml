@@ -79,6 +79,37 @@ jobs:
             gabriel-*.sha256
 
 
+
+  sbom:
+    name: software bill of materials
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate CycloneDX SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx --format json --describe binaries -q
+          # One SBOM per shipped binary; the bench harness is not shipped.
+          mv crates/gabriel-cli/gabriel_bin.cdx.json \
+             "gabriel-${{ github.ref_name }}-sbom.cdx.json"
+      - name: Sanity-check it
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open([f for f in __import__("os").listdir(".") if f.endswith("sbom.cdx.json")][0]))
+          assert d["bomFormat"] == "CycloneDX", d.get("bomFormat")
+          components = d.get("components", [])
+          assert len(components) > 50, f"only {len(components)} components — that cannot be right"
+          missing = [c["name"] for c in components if not c.get("licenses")]
+          print(f"{len(components)} components, {len(missing)} without licence data")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: gabriel-*-sbom.cdx.json
+
   smoke:
     name: smoke ${{ matrix.target }}
     needs: build
@@ -219,23 +250,82 @@ jobs:
 
   release:
     name: publish release
-    needs: [build, smoke]
+    needs: [build, smoke, sbom]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+      # Keyless signing: the certificate is bound to this workflow's identity,
+      # so there is no private key to store, rotate, or lose.
+      id-token: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+
+      - name: One checksum file for everything
+        run: |
+          set -euo pipefail
+          sha256sum gabriel-*.tar.gz gabriel-*.zip gabriel-*-sbom.cdx.json > checksums.txt
+          cat checksums.txt
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign the artifacts
+        run: |
+          set -euo pipefail
+          for file in gabriel-*.tar.gz gabriel-*.zip gabriel-*-sbom.cdx.json checksums.txt; do
+            [ -e "$file" ] || continue
+            cosign sign-blob --yes \
+              --output-signature "$file.sig" \
+              --output-certificate "$file.pem" \
+              "$file"
+          done
+          ls -la *.sig *.pem
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             gabriel-*.tar.gz
             gabriel-*.zip
-            gabriel-*.sha256
+            gabriel-*-sbom.cdx.json
+            checksums.txt
+            *.sig
+            *.pem
+            install.sh
           generate_release_notes: true
           body: |
-            Binaries are unsigned. macOS will quarantine them; clear it with:
+            ## Verifying this release
 
-                xattr -d com.apple.quarantine gabriel
+            Every artifact carries a SHA-256 in `checksums.txt` and a Sigstore
+            signature. The signature is keyless: the certificate binds the
+            artifact to the workflow that built it, so there is no key for
+            anyone to steal.
 
-            Verify a download against its `.sha256` before running it.
+            ```sh
+            sha256sum -c checksums.txt --ignore-missing
+
+            cosign verify-blob \
+              --certificate gabriel-<target>.tar.gz.pem \
+              --signature   gabriel-<target>.tar.gz.sig \
+              --certificate-identity-regexp 'https://github.com/.*/Gabrielbrowser/.*' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              gabriel-<target>.tar.gz
+            ```
+
+            `gabriel-<version>-sbom.cdx.json` is a CycloneDX bill of materials
+            for the shipped binary.
+
+            ## Installing
+
+            ```sh
+            curl -fsSL <this release's install.sh URL> | sh
+            ```
+
+            It verifies the checksum before copying anything and refuses to
+            install a download it cannot verify.
+
+            Binaries are **not** code-signed or notarized yet, so macOS will
+            warn about an unidentified developer. The installer clears the
+            quarantine attribute; Gatekeeper may still ask once.

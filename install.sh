@@ -86,6 +86,16 @@ verify() {
 The download is corrupt or has been tampered with. Nothing was installed."
 }
 
+copy_binary() {
+    _from="$1"
+    _to="$2"
+    # `install` is not on every minimal image, so fall back to cp.
+    install -m 755 "$_from" "$_to" 2>/dev/null && return 0
+    cp "$_from" "$_to" 2>/dev/null || return 1
+    chmod 755 "$_to" 2>/dev/null || return 1
+    return 0
+}
+
 # ── run ──────────────────────────────────────────────────────────────────────
 
 need tar
@@ -129,9 +139,18 @@ tar xzf "$tmp/$archive" -C "$tmp"
 binary=$(find "$tmp" -name gabriel -type f | head -1)
 [ -n "$binary" ] || die "no gabriel binary inside the archive"
 
-mkdir -p "$INSTALL_DIR"
-install -m 755 "$binary" "$INSTALL_DIR/gabriel" 2>/dev/null \
-    || { cp "$binary" "$INSTALL_DIR/gabriel" && chmod 755 "$INSTALL_DIR/gabriel"; }
+mkdir -p "$INSTALL_DIR" 2>/dev/null || die "cannot create $INSTALL_DIR
+Choose somewhere else with GABRIEL_INSTALL_DIR."
+
+# `set -e` is unreliable for the last command of an `||` list — some shells
+# exit, some carry on — so the failure is checked explicitly. Without this the
+# installer reported success after failing to write, which is the worst possible
+# outcome for something people run piped into a shell.
+if ! copy_binary "$binary" "$INSTALL_DIR/gabriel"; then
+    die "cannot write to $INSTALL_DIR
+Choose a writable directory with GABRIEL_INSTALL_DIR, for example:
+  curl -fsSL <url>/install.sh | GABRIEL_INSTALL_DIR=\$HOME/bin sh"
+fi
 
 say "installed to $INSTALL_DIR/gabriel"
 

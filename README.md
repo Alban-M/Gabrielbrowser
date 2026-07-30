@@ -45,8 +45,28 @@ Or straight from the repository, which needs access while it is private:
 cargo install --git https://github.com/Alban-M/Gabrielbrowser gabriel-cli
 ```
 
-Binaries are unsigned, so macOS will warn about an unidentified developer until
-they are notarized.
+### Verifying a download
+
+Every release artifact carries a SHA-256 in `checksums.txt` and a keyless
+Sigstore signature — the certificate binds the artifact to the workflow that
+built it, so there is no signing key for anyone to steal:
+
+```bash
+sha256sum -c checksums.txt --ignore-missing
+
+cosign verify-blob \
+  --certificate gabriel-<target>.tar.gz.pem \
+  --signature   gabriel-<target>.tar.gz.sig \
+  --certificate-identity-regexp 'https://github.com/.*/Gabrielbrowser/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  gabriel-<target>.tar.gz
+```
+
+A CycloneDX SBOM (`gabriel-<version>-sbom.cdx.json`) ships with every release,
+listing every dependency in the shipped binary with its licence and package URL.
+
+Binaries are not yet code-signed or notarized, so macOS will warn about an
+unidentified developer.
 
 Rust 1.85 or newer, for edition 2024.
 
@@ -214,8 +234,20 @@ scripts; exit code 1 only on a real failure, not a warning.
 ## Contributing
 
 CI runs the suite on Linux, macOS and Windows, and gates on `cargo fmt --check`,
-`cargo clippy -- -D warnings` and a dependency advisory scan. Run those locally
-before opening a pull request and there should be no surprises.
+`cargo clippy -- -D warnings`, a dependency advisory scan, and the installer
+regression suite:
+
+```bash
+cargo test
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+./installer-tests/run.sh        # needs cargo build --release first
+```
+
+The installer has its own suite because it is a trust boundary — the one piece
+of software someone runs before they have any reason to trust it, usually piped
+straight into a shell. Both bugs it has had were invisible on the page and
+obvious on the first execution.
 
 ## Building
 

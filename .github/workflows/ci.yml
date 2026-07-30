@@ -44,6 +44,25 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+
+  installer:
+    name: installer suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the binary the installer will ship
+        run: cargo build --release -p gabriel-cli
+      # The installer is a trust boundary, and the only bugs it has had were
+      # invisible until it ran. It gets its own suite, on every push.
+      - name: Installer regression suite
+        run: ./installer-tests/run.sh
+
   audit:
     name: dependency advisories
     runs-on: ubuntu-latest
