@@ -7,6 +7,7 @@
 //! it; one living beside the browser can.
 
 pub mod assertion;
+pub mod oauth;
 pub mod session;
 pub mod websocket;
 
@@ -935,6 +936,16 @@ impl Executor {
         let grant = match config.grant {
             OAuth2Grant::ClientCredentials => "client_credentials",
             OAuth2Grant::Password => "password",
+            // Interactive by nature: it needs a browser and a listener, so it
+            // is run once by `gabriel auth login` rather than silently in the
+            // middle of somebody's request.
+            OAuth2Grant::AuthorizationCode => {
+                return Err(EngineError::Auth(
+                    "this request uses the authorization-code grant — run `gabriel auth login` \
+                     first, which stores the token in the vault"
+                        .to_string(),
+                ));
+            }
         };
         let mut form: Vec<(String, String)> = vec![("grant_type".into(), grant.into())];
         if let Some(scope) = &scope {

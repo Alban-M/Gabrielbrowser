@@ -89,6 +89,23 @@ enum Command {
     #[command(subcommand)]
     Session(SessionCommand),
 
+    /// Sign in with OAuth2 (authorization code + PKCE) and store the tokens.
+    Auth {
+        /// Request whose `[auth]` block holds the OAuth2 configuration.
+        request: String,
+        #[arg(short, long)]
+        env: Option<String>,
+        /// Fixed loopback port, when the provider requires an exact redirect URI.
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// Print the URL instead of opening a browser.
+        #[arg(long)]
+        no_browser: bool,
+        /// Give up after this many seconds.
+        #[arg(long, default_value_t = 300)]
+        timeout: u64,
+    },
+
     /// Open a WebSocket, send frames, and watch what comes back.
     Ws {
         /// Request name from the collection, or a ws:// / wss:// / https:// URL.
@@ -552,6 +569,10 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             Ok(Outcome::Success)
         }
 
+        Command::Auth { request, env, port, no_browser, timeout } => {
+            auth_command(request, env, port, no_browser, timeout, &start_dir, style)
+        }
+
         Command::Ws {
             target,
             send,
@@ -644,6 +665,106 @@ struct WsArgs {
     env: Option<String>,
     vars: Vec<String>,
     session: Option<String>,
+}
+
+fn auth_command(
+    request: String,
+    env: Option<String>,
+    port: u16,
+    no_browser: bool,
+    timeout: u64,
+    start_dir: &Path,
+    style: &Style,
+) -> Result<Outcome> {
+    use gabriel_core::model::Auth;
+    use gabriel_engine::oauth::{self, FlowOptions};
+
+    let collection = open_collection(start_dir)?;
+    let entry = collection.find(&request)?.clone();
+    let spec = collection.apply_defaults(&entry.spec);
+
+    let Some(Auth::OAuth2(config)) = &spec.auth else {
+        bail!("`{}` does not declare an OAuth2 [auth] block", entry.id);
+    };
+
+    let env_name = match (&env, collection.environment_names().as_slice()) {
+        (Some(name), _) => Some(name.clone()),
+        (None, [only]) => Some(only.clone()),
+        (None, _) => None,
+    };
+    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+
+    // Resolve templates in the config before anything is sent.
+    let secrets = LazySecrets::new(collection.vault_path(), KeySource::from_environment());
+    let mut resolver = Resolver::new()
+        .with_secrets(&secrets)
+        .with_vars(collection.variables_for(environment.as_ref()));
+
+    let mut resolved = config.clone();
+    resolved.token_url = resolver.resolve(&config.token_url)?;
+    resolved.client_id = resolver.resolve(&config.client_id)?;
+    resolved.authorize_url =
+        config.authorize_url.as_ref().map(|u| resolver.resolve(u)).transpose()?;
+    resolved.client_secret =
+        config.client_secret.as_ref().map(|s| resolver.resolve(s)).transpose()?;
+    resolved.scope = config.scope.as_ref().map(|s| resolver.resolve(s)).transpose()?;
+    resolved.audience = config.audience.as_ref().map(|a| resolver.resolve(a)).transpose()?;
+    resolved.redirect_uri =
+        config.redirect_uri.as_ref().map(|r| resolver.resolve(r)).transpose()?;
+
+    let options = FlowOptions {
+        port,
+        open_browser: !no_browser,
+        timeout: std::time::Duration::from_secs(timeout),
+    };
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?;
+
+    println!("{}", style.dim("waiting for the browser to come back…"));
+    let tokens = runtime
+        .block_on(oauth::authorization_code(&resolved, &options, |url| {
+            if no_browser {
+                println!("{}", style.bold("open this to sign in:"));
+            }
+            println!("{url}");
+        }))
+        .context("the sign-in flow did not complete")?;
+
+    // Tokens are credentials: they go where credentials go.
+    let base = gabriel_collection::slugify(&entry.id);
+    let access_key = format!("{base}_access_token");
+    let mut vault = Vault::open(collection.vault_path(), &KeySource::from_environment())
+        .context("opening the vault to store the tokens")?;
+    vault.set(&access_key, &tokens.access_token);
+    if let Some(refresh) = &tokens.refresh_token {
+        vault.set(format!("{base}_refresh_token"), refresh);
+    }
+    vault.save()?;
+
+    println!();
+    println!("{} {}", style.green("signed in"), style.dim(&entry.id));
+    println!("{} {}", style.dim("access token →"), access_key);
+    if tokens.refresh_token.is_some() {
+        println!("{} {}_refresh_token", style.dim("refresh token →"), base);
+    }
+    if let Some(expires_in) = tokens.expires_in {
+        println!(
+            "{} {}",
+            style.dim("expires in"),
+            output::format_duration(expires_in * 1000)
+        );
+    }
+    if let Some(scope) = &tokens.scope {
+        println!("{} {}", style.dim("scope"), style.safe(scope));
+    }
+
+    println!();
+    println!("  {}", style.dim("use it with:"));
+    println!("  {}", style.dim(&format!("[auth]\n  type = \"bearer\"\n  token = \"{{{{secret:{access_key}}}}}\"")));
+    Ok(Outcome::Success)
 }
 
 fn ws_command(args: WsArgs, start_dir: &Path, style: &Style) -> Result<Outcome> {

@@ -201,6 +201,10 @@ pub enum Auth {
         #[serde(default)]
         location: ApiKeyLocation,
     },
+    /// Spelled `oauth2` in a file. Without this rename, serde's snake_case rule
+    /// derives `o_auth2` from the variant name — a spelling no one would write
+    /// and every provider's documentation contradicts.
+    #[serde(rename = "oauth2")]
     OAuth2(OAuth2),
 }
 
@@ -216,6 +220,15 @@ pub enum ApiKeyLocation {
 pub struct OAuth2 {
     pub grant: OAuth2Grant,
     pub token_url: String,
+    /// Where the browser is sent to log in. Required for the authorization-code
+    /// grant and ignored by the others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize_url: Option<String>,
+    /// Loopback redirect the provider must have registered, e.g.
+    /// `http://127.0.0.1:8765/callback`. A fixed port is used when the provider
+    /// requires an exact match; otherwise any free port is taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
     pub client_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
@@ -234,6 +247,10 @@ pub struct OAuth2 {
 pub enum OAuth2Grant {
     ClientCredentials,
     Password,
+    /// Authorization code with PKCE (RFC 7636). The flow runs a browser and a
+    /// loopback listener, so it is started explicitly with `gabriel auth login`
+    /// rather than in the middle of a request.
+    AuthorizationCode,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -414,6 +431,32 @@ mod tests {
         assert_eq!(spec, back);
         // The body must survive as literal text, not as re-encoded TOML.
         assert!(text.contains("\"name\": \"ada\""), "body mangled:\n{text}");
+    }
+
+    #[test]
+    fn an_oauth2_block_is_spelled_the_way_documentation_spells_it() {
+        let spec: RequestSpec = toml::from_str(
+            r#"
+            url = "https://api.test/me"
+            [auth]
+            type = "oauth2"
+            grant = "authorization_code"
+            authorize_url = "https://auth.test/authorize"
+            token_url = "https://auth.test/token"
+            client_id = "abc"
+            "#,
+        )
+        .expect("`type = \"oauth2\"` must parse");
+
+        let Some(Auth::OAuth2(config)) = &spec.auth else {
+            panic!("expected an OAuth2 block, got {:?}", spec.auth);
+        };
+        assert_eq!(config.grant, OAuth2Grant::AuthorizationCode);
+        assert_eq!(config.authorize_url.as_deref(), Some("https://auth.test/authorize"));
+
+        // And it round-trips back to the same spelling.
+        let text = toml::to_string_pretty(&spec).unwrap();
+        assert!(text.contains("type = \"oauth2\""), "wrote the wrong spelling:\n{text}");
     }
 
     #[test]

@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.23.0"
 futures-util = { version = "0.3.33", default-features = false }
 gabriel-core = { version = "0.1.0", path = "../gabriel-core" }
+rand = "0.10.2"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "json", "gzip", "brotli", "charset", "multipart", "form", "stream"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.11.0"
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs", "time"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }

@@ -27,6 +27,7 @@ gabriel ws <url|name> --send '…'    # open a socket, send frames, watch replie
 gabriel har import <file>          # bring in traffic from DevTools/Charles/Proxyman
 gabriel har export --out t.har     # take it back out again
 gabriel run --all --junit r.xml    # run the collection, report to CI
+gabriel auth <name>                # OAuth2 sign-in (PKCE), tokens to the vault
 ```
 
 The promotion step is the point. A captured request becomes a file with **no
@@ -121,7 +122,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 296 tests
+cargo test          # 313 tests
 cargo build --release
 ```
 
@@ -149,8 +150,12 @@ Known gaps in what *is* built:
   recorded as a 101 — but the frames are not captured. The relay is exercised
   end to end over plain HTTP; the TLS path shares the same code but has only
   been verified by inspection.
-- **OAuth2** covers the client-credentials and password grants, not the
-  authorization-code redirect flow.
+- **OAuth2** covers client-credentials, password, and authorization-code with
+  PKCE (`gabriel auth`). The PKCE flow is verified end to end against a local
+  IdP that enforces the challenge; interoperability with Google, GitHub and
+  Auth0 has **not** been tested — that needs real client IDs and a consent
+  screen. GitHub's OAuth apps are not expected to work, as they ignore
+  `code_verifier`.
 - **JWT signatures are not verified** — that needs the issuer's key. Gabriel
   decodes, checks expiry, and flags `alg: none`.
 - **The proxy speaks HTTP/1.1** to the browser.
