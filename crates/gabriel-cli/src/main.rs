@@ -88,6 +88,33 @@ enum Command {
     #[command(subcommand)]
     Session(SessionCommand),
 
+    /// Open a WebSocket, send frames, and watch what comes back.
+    Ws {
+        /// Request name from the collection, or a ws:// / wss:// / https:// URL.
+        target: String,
+        /// Text frame to send once connected. Repeatable, sent in order.
+        #[arg(short, long = "send", value_name = "TEXT")]
+        send: Vec<String>,
+        /// Stop after this many messages (pings do not count).
+        #[arg(short, long, default_value_t = 50)]
+        messages: usize,
+        /// Stop listening after this many seconds.
+        #[arg(short, long, default_value_t = 30)]
+        timeout: u64,
+        /// Close as soon as the frames are sent, without waiting.
+        #[arg(long)]
+        close_after_send: bool,
+        /// Subprotocol to request. Repeatable.
+        #[arg(long = "subprotocol", value_name = "NAME")]
+        subprotocols: Vec<String>,
+        #[arg(short, long)]
+        env: Option<String>,
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        vars: Vec<String>,
+        #[arg(short = 'S', long)]
+        session: Option<String>,
+    },
+
     /// Import or export captured traffic as HAR.
     #[command(subcommand)]
     Har(HarCommand),
@@ -516,6 +543,32 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             Ok(Outcome::Success)
         }
 
+        Command::Ws {
+            target,
+            send,
+            messages,
+            timeout,
+            close_after_send,
+            subprotocols,
+            env,
+            vars,
+            session,
+        } => ws_command(
+            WsArgs {
+                target,
+                send,
+                messages,
+                timeout,
+                close_after_send,
+                subprotocols,
+                env,
+                vars,
+                session,
+            },
+            &start_dir,
+            style,
+        ),
+
         Command::Har(command) => har_command(command, &start_dir, style),
 
         Command::Jwt { token, capture, json } => jwt_command(token, capture, json, &start_dir, style),
@@ -570,6 +623,113 @@ struct CurlArgs {
     session: Option<String>,
     show_secrets: bool,
     one_line: bool,
+}
+
+struct WsArgs {
+    target: String,
+    send: Vec<String>,
+    messages: usize,
+    timeout: u64,
+    close_after_send: bool,
+    subprotocols: Vec<String>,
+    env: Option<String>,
+    vars: Vec<String>,
+    session: Option<String>,
+}
+
+fn ws_command(args: WsArgs, start_dir: &Path, style: &Style) -> Result<Outcome> {
+    use gabriel_engine::websocket::{self, Direction, WebSocketPlan};
+
+    let collection = open_collection(start_dir)?;
+
+    // A URL is a request too; nobody should have to create a file to poke a
+    // socket once.
+    let spec = if args.target.contains("://") {
+        gabriel_core::RequestSpec::new("GET", &args.target)
+    } else {
+        collection.apply_defaults(&collection.find(&args.target)?.spec)
+    };
+
+    let env_name = match (&args.env, collection.environment_names().as_slice()) {
+        (Some(name), _) => Some(name.clone()),
+        (None, [only]) => Some(only.clone()),
+        (None, _) => None,
+    };
+    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+
+    let secrets = LazySecrets::new(collection.vault_path(), KeySource::from_environment());
+    let mut resolver = Resolver::new()
+        .with_secrets(&secrets)
+        .with_vars(collection.variables_for(environment.as_ref()));
+    for assignment in &args.vars {
+        let (key, value) = support::parse_assignment(assignment)?;
+        resolver.set(key, value);
+    }
+
+    let mut sessions = SessionStore::load(collection.sessions_path())?;
+    let session = args
+        .session
+        .clone()
+        .unwrap_or_else(|| gabriel_engine::session::DEFAULT_SESSION.to_string());
+
+    let plan = WebSocketPlan {
+        send: args.send.clone(),
+        max_messages: args.messages,
+        max_duration: std::time::Duration::from_secs(args.timeout),
+        close_after_send: args.close_after_send,
+        subprotocols: args.subprotocols.clone(),
+    };
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?;
+
+    let outcome = {
+        let mut ctx = RunContext::new(&mut resolver, &mut sessions)
+            .with_session(session)
+            .with_base_dir(collection.root());
+        let redactor = Redactor::new(ctx.resolver.used_secrets());
+        runtime
+            .block_on(websocket::run(&spec, &mut ctx, &plan, |frame| {
+                let arrow = match frame.direction {
+                    Direction::Sent => style.cyan("→"),
+                    Direction::Received => style.green("←"),
+                };
+                println!(
+                    "{} {} {}",
+                    style.dim(&format!("{:>6}", output::format_duration(frame.at_ms))),
+                    arrow,
+                    style.safe(&redactor.apply(&frame.payload.summary()))
+                );
+            }))
+            .with_context(|| format!("websocket `{}`", args.target))?
+    };
+
+    sessions.save()?;
+
+    println!();
+    let sent = outcome.frames.len() - outcome.received().count();
+    println!(
+        "{} {} · {} sent, {} received in {}",
+        style.status(outcome.status),
+        style.dim(if outcome.status == 101 { "Switching Protocols" } else { "" }),
+        sent,
+        outcome.received().count(),
+        output::format_duration(outcome.duration_ms)
+    );
+    if let Some(protocol) = &outcome.subprotocol {
+        println!("{} {protocol}", style.dim("subprotocol"));
+    }
+    let reason = match outcome.ended {
+        websocket::SocketEnd::ClosedByServer => "the server closed the socket",
+        websocket::SocketEnd::ClosedAfterSend => "closed after sending, as asked",
+        websocket::SocketEnd::MessageLimitReached => "reached --messages",
+        websocket::SocketEnd::TimedOut => "reached --timeout",
+    };
+    println!("{}", style.dim(reason));
+
+    Ok(Outcome::Success)
 }
 
 fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<Outcome> {

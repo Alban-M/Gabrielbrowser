@@ -23,6 +23,7 @@ gabriel diff <id-a> <id-b>         # what changed between two responses
 gabriel run <name> --stream        # follow a server-sent event stream live
 gabriel jwt <token>                # decode and inspect a JWT, locally
 gabriel curl <name>                # print the request as a curl command
+gabriel ws <url|name> --send '…'    # open a socket, send frames, watch replies
 gabriel har import <file>          # bring in traffic from DevTools/Charles/Proxyman
 gabriel har export --out t.har     # take it back out again
 ```
@@ -119,7 +120,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 263 tests
+cargo test          # 282 tests
 cargo build --release
 ```
 
@@ -149,8 +150,6 @@ Known gaps in what *is* built:
   been verified by inspection.
 - **OAuth2** covers the client-credentials and password grants, not the
   authorization-code redirect flow.
-- **No WebSocket client.** The proxy relays upgrades; the engine cannot originate
-  a WebSocket connection. SSE *is* supported (`run --stream`).
 - **JWT signatures are not verified** — that needs the issuer's key. Gabriel
   decodes, checks expiry, and flags `alg: none`.
 - **The proxy speaks HTTP/1.1** to the browser.

@@ -8,6 +8,7 @@
 
 pub mod assertion;
 pub mod session;
+pub mod websocket;
 
 use assertion::AssertionOutcome;
 use gabriel_core::model::{ApiKeyLocation, Auth, Body, CaptureSource, OAuth2, OAuth2Grant, RequestSpec};
@@ -52,9 +53,14 @@ pub enum EngineError {
 
     #[error("client certificate `{reference}` is not a usable PEM identity: {message}")]
     ClientCert { reference: String, message: String },
+
+    #[error("{0}")]
+    Invalid(String),
 }
 
-type Result<T> = std::result::Result<T, EngineError>;
+/// Public because public functions return it: a caller outside the crate could
+/// not otherwise name the type in its own signatures.
+pub type Result<T> = std::result::Result<T, EngineError>;
 
 /// What a request needs to know about the world outside its own file.
 pub struct RunContext<'r, 'v> {
