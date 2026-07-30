@@ -329,6 +329,38 @@ mod tests {
     }
 
     #[test]
+    fn maps_have_both_keys_and_values_resolved() {
+        let mut r = resolver_with(&[("header_name", "X-Tenant"), ("tenant", "acme")]);
+        let mut map = FieldMap::default();
+        map.set("{{header_name}}", "{{tenant}}");
+        map.insert("Accept", "application/json");
+
+        let resolved = r.resolve_map(&map).unwrap();
+        assert_eq!(resolved.get_first("X-Tenant"), Some("acme"));
+        assert_eq!(resolved.get_first("Accept"), Some("application/json"));
+    }
+
+    #[test]
+    fn multi_valued_entries_are_all_resolved() {
+        let mut r = resolver_with(&[("a", "one"), ("b", "two")]);
+        let mut map = FieldMap::default();
+        map.insert("tag", "{{a}}");
+        map.insert("tag", "{{b}}");
+
+        let resolved = r.resolve_map(&map).unwrap();
+        let values: Vec<&str> = resolved.iter_pairs().map(|(_, v)| v).collect();
+        assert_eq!(values, vec!["one", "two"]);
+    }
+
+    #[test]
+    fn an_unknown_variable_in_a_map_is_an_error_not_a_blank() {
+        let mut r = Resolver::new();
+        let mut map = FieldMap::default();
+        map.set("X-Trace", "{{missing}}");
+        assert!(r.resolve_map(&map).is_err());
+    }
+
+    #[test]
     fn redactor_masks_recorded_secrets() {
         let redactor = Redactor::new(vec!["sk-live-abc123".into()]);
         let masked = redactor.apply("token=sk-live-abc123 ok");

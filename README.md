@@ -114,7 +114,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 173 tests
+cargo test          # 196 tests
 cargo build --release
 ```
 

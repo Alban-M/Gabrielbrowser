@@ -784,6 +784,18 @@ mod tests {
     }
 
     #[test]
+    fn slugify_produces_safe_file_stems() {
+        assert_eq!(slugify("GET /v1/users"), "get-v1-users");
+        assert_eq!(slugify("  spaces  everywhere  "), "spaces-everywhere");
+        // Path separators and traversal characters cannot survive slugifying,
+        // which is why the auto-derived promote path was never a traversal risk.
+        assert_eq!(slugify("../../etc/passwd"), "etc-passwd");
+        assert_eq!(slugify("!!!"), "request");
+        assert_eq!(slugify(""), "request");
+        assert_eq!(slugify("café ☕"), "caf");
+    }
+
+    #[test]
     fn a_saved_request_reloads_identically() {
         let dir = temp_dir();
         let mut collection = Collection::init(&dir, "demo").unwrap();

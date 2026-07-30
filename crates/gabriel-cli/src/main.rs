@@ -266,6 +266,9 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             let name = name.unwrap_or_else(|| support::directory_name(&start_dir));
             let collection = Collection::init(&start_dir, &name)?;
             println!("{} {}", style.green("created"), collection.root().display());
+            if let Some(warning) = gabriel_core::permission_warning() {
+                eprintln!("{} {warning}", style.yellow("warning:"));
+            }
             println!();
             println!("  {}", style.dim("gabriel run example        send the starter request"));
             println!("  {}", style.dim("gabriel capture start      record live traffic"));
@@ -611,6 +614,9 @@ fn start_capture(
     runtime.block_on(async move {
         let running = proxy.start().await?;
         println!("{} http://{}", style.green("proxy listening on"), running.addr);
+        if let Some(warning) = gabriel_core::permission_warning() {
+            eprintln!("{} {warning}", style.yellow("warning:"));
+        }
         println!("  {} {}", style.dim("session:"), session);
         if !only.is_empty() {
             println!("  {} {}", style.dim("intercepting only:"), only.join(", "));
@@ -640,12 +646,47 @@ fn promote(args: PromoteArgs, start_dir: &Path, style: &Style) -> Result<Outcome
         .get(&args.id)?
         .with_context(|| format!("no capture matches `{}`", args.id))?;
 
-    let options = PromoteOptions {
+    let mut options = PromoteOptions {
         inline_cookies: args.inline_cookies,
         inline_token: args.inline_token,
         base_url_var: Some("base_url".to_string()),
     };
-    let promotion = capture.promote(&options);
+    let mut promotion = capture.promote(&options);
+
+    // Parameterising the origin as `{{base_url}}` is only helpful if that
+    // variable resolves back to the host the request was captured from. If an
+    // environment already points `base_url` somewhere else, substituting it
+    // would save a request that silently targets the wrong server — so keep the
+    // literal origin and say so.
+    let captured_origin = promotion
+        .vars
+        .iter()
+        .find(|(name, _)| name == "base_url")
+        .map(|(_, value)| value.clone());
+    if args.env.is_none()
+        && let Some(origin) = &captured_origin
+    {
+        let conflicts: Vec<(String, String)> = collection
+            .environment_names()
+            .into_iter()
+            .filter_map(|name| {
+                let existing = collection.environment(&name).ok()?.variables().get("base_url")?.clone();
+                (existing != *origin).then_some((name, existing))
+            })
+            .collect();
+
+        if !conflicts.is_empty() {
+            options.base_url_var = None;
+            promotion = capture.promote(&options);
+            for (env_name, existing) in &conflicts {
+                eprintln!(
+                    "{} `{env_name}` already sets base_url to {existing}, not {origin} — \
+                     keeping the literal URL so the replay hits the host it was captured from",
+                    style.yellow("note:")
+                );
+            }
+        }
+    }
 
     let path = match args.to {
         Some(path) => path,

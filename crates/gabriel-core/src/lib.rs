@@ -86,6 +86,30 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// Whether this platform enforces the file permissions Gabriel relies on.
+///
+/// The vault, the session store, the capture log and the interception CA key are
+/// all written `0600` on Unix. Windows has no equivalent call here, so those
+/// files inherit the directory's ACL — which, for a collection living in a
+/// shared or world-readable folder, is weaker than it looks. Callers surface
+/// this rather than letting a function named `write_private` quietly mean
+/// something different per platform.
+pub fn permissions_enforced() -> bool {
+    cfg!(unix)
+}
+
+/// One-line warning for platforms where [`permissions_enforced`] is false.
+pub fn permission_warning() -> Option<&'static str> {
+    if permissions_enforced() {
+        None
+    } else {
+        Some(
+            "this platform does not enforce file permissions on the vault, session store, \
+             capture log or CA key — keep the collection in a directory only you can read",
+        )
+    }
+}
+
 /// Human-friendly byte count for terminal output.
 pub fn format_bytes(bytes: usize) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
@@ -118,9 +142,47 @@ mod tests {
     }
 
     #[test]
+    fn date_parts_offsets_by_whole_days() {
+        // 2026-07-29T00:00:00Z
+        let base = 1_785_283_200_000;
+        assert_eq!(date_parts(base, 0), (2026, 7, 29));
+        assert_eq!(date_parts(base, 1), (2026, 7, 30));
+        assert_eq!(date_parts(base, -1), (2026, 7, 28));
+        // Across a month boundary, and a year.
+        assert_eq!(date_parts(base, 3), (2026, 8, 1));
+        assert_eq!(date_parts(base, 156), (2027, 1, 1));
+    }
+
+    #[test]
+    fn date_parts_handles_leap_years() {
+        // 2024-02-28T00:00:00Z + 1 day is the 29th, not March.
+        let leap_eve = 1_709_078_400_000;
+        assert_eq!(date_parts(leap_eve, 0), (2024, 2, 28));
+        assert_eq!(date_parts(leap_eve, 1), (2024, 2, 29));
+        assert_eq!(date_parts(leap_eve, 2), (2024, 3, 1));
+    }
+
+    /// A certificate's validity window comes from this, so an off-by-one here
+    /// produces certificates a browser rejects.
+    #[test]
+    fn date_parts_agrees_with_the_formatter() {
+        let now = 1_785_283_200_000;
+        let (y, m, d) = date_parts(now, 0);
+        assert!(format_iso8601(now).starts_with(&format!("{y:04}-{m:02}-{d:02}")));
+    }
+
+    #[test]
     fn base64_round_trips() {
         let bytes = vec![0u8, 1, 254, 255];
         assert_eq!(b64_decode(&b64_encode(&bytes)).unwrap(), bytes);
+    }
+
+    #[test]
+    fn the_platform_permission_story_is_stated_not_assumed() {
+        // On Unix the guarantee holds and there is nothing to warn about;
+        // anywhere else the warning must exist so a caller can print it.
+        assert_eq!(permissions_enforced(), cfg!(unix));
+        assert_eq!(permission_warning().is_none(), permissions_enforced());
     }
 
     #[test]

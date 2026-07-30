@@ -519,6 +519,60 @@ mod tests {
     }
 
     #[test]
+    fn pruning_removes_only_the_expired() {
+        let mut store = SessionStore::new();
+        store.record_set_cookies("s", ["live=1; Max-Age=3600"], "app.test", "/");
+        store.insert(
+            "s",
+            Cookie {
+                name: "stale".into(),
+                value: "1".into(),
+                domain: "app.test".into(),
+                path: "/".into(),
+                host_only: true,
+                secure: false,
+                http_only: false,
+                // Already expired, inserted directly: `record_set_cookies`
+                // would (correctly) drop it on the way in.
+                expires_ms: Some(1),
+            },
+        );
+        // `insert` refuses to store an already-expired cookie, which is itself
+        // the deletion path — so the jar holds only the live one.
+        assert_eq!(store.cookie_count("s"), 1);
+        assert_eq!(store.prune(), 0);
+        assert_eq!(
+            store.cookie_header("s", "app.test", "/", false).as_deref(),
+            Some("live=1")
+        );
+    }
+
+    #[test]
+    fn a_session_cookie_never_expires_on_its_own() {
+        let mut store = SessionStore::new();
+        store.record_set_cookies("s", ["sid=abc"], "app.test", "/");
+        assert_eq!(store.prune(), 0);
+        assert_eq!(store.cookie_count("s"), 1);
+    }
+
+    #[test]
+    fn setting_a_path_makes_the_store_persist_there() {
+        let dir = std::env::temp_dir().join(format!("gabriel-setpath-{}", gabriel_core::now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sessions.json");
+
+        let mut store = SessionStore::new();
+        // Without a path, save is a no-op rather than an error.
+        store.record_set_cookies("s", ["sid=abc"], "app.test", "/");
+        store.save().unwrap();
+        assert!(!path.exists());
+
+        store.set_path(&path);
+        store.save().unwrap();
+        assert!(path.exists(), "set_path should make save write there");
+    }
+
+    #[test]
     fn the_store_round_trips_through_disk() {
         let dir = std::env::temp_dir().join(format!("gabriel-session-{}", gabriel_core::now_ms()));
         std::fs::create_dir_all(&dir).unwrap();

@@ -127,80 +127,105 @@ pub fn print_run(
     verbose: bool,
     body_limit: usize,
 ) {
+    let mut stdout = std::io::stdout().lock();
+    // Errors here mean stdout is gone (closed pipe); nothing useful to do.
+    let _ = write_run(&mut stdout, outcome, style, redactor, verbose, body_limit);
+}
+
+/// The body of [`print_run`], writing somewhere testable.
+///
+/// This function is where redaction and escape-defusing are composed over every
+/// field, which makes it security-relevant: a field printed without both is a
+/// leak or an injection. Writing to a generic sink lets a test assert on the
+/// exact bytes a terminal would receive.
+pub fn write_run<W: std::io::Write>(
+    w: &mut W,
+    outcome: &RunOutcome,
+    style: &Style,
+    redactor: &Redactor,
+    verbose: bool,
+    body_limit: usize,
+) -> std::io::Result<()> {
     let response = &outcome.response;
-    println!(
+    writeln!(w, 
         "{} {}",
         style.bold(&outcome.sent.method),
         style.safe(&redactor.apply(&outcome.sent.url))
-    );
+    )?;
 
     if verbose {
         for (name, value) in &outcome.sent.headers {
-            println!(
+            writeln!(w, 
                 "  {} {}",
                 style.dim(&style.safe(&format!("{name}:"))),
                 style.safe(&redactor.apply(value))
-            );
+            )?;
         }
         if let Some(body) = &outcome.sent.body {
-            println!("{}", style.dim("  body:"));
-            println!("{}", indent(&style.safe(&redactor.apply(body)), 4));
+            writeln!(w, "{}", style.dim("  body:"))?;
+            writeln!(w, "{}", indent(&style.safe(&redactor.apply(body)), 4))?;
         }
-        println!();
+        writeln!(w)?;
     }
 
-    println!(
+    writeln!(w, 
         "{} {} {} {} {}",
         style.status(response.status),
         style.dim(&response.status_text),
         style.dim("·"),
         format_duration(response.timings.total_ms),
         style.dim(&gabriel_core::format_bytes(response.size())),
-    );
+    )?;
 
     if verbose {
         for (name, value) in response.headers.iter_pairs() {
-            println!(
+            // Redacted as well as escaped: a response can echo the very token
+            // that was sent (debug endpoints and signed-URL services both do
+            // it), and `--show-secrets` being off has to mean off in both
+            // directions.
+            writeln!(
+                w,
                 "  {} {}",
                 style.dim(&style.safe(&format!("{name}:"))),
-                style.safe(value)
-            );
+                style.safe(&redactor.apply(value))
+            )?;
         }
     }
 
     let body = render_body(response, body_limit);
     if !body.trim().is_empty() {
-        println!();
-        println!("{}", style.safe(&redactor.apply(&body)));
+        writeln!(w)?;
+        writeln!(w, "{}", style.safe(&redactor.apply(&body)))?;
     }
 
     if !outcome.captured.is_empty() {
-        println!();
+        writeln!(w)?;
         for (name, value) in &outcome.captured {
-            println!(
+            writeln!(w, 
                 "{} {} = {}",
                 style.cyan("captured"),
                 style.safe(name),
                 style.safe(&redactor.apply(&truncate(value, 120)))
-            );
+            )?;
         }
     }
 
     if !outcome.assertions.is_empty() {
-        println!();
+        writeln!(w)?;
         for assertion in &outcome.assertions {
             if assertion.passed {
-                println!("{} {}", style.green("✓"), style.safe(&assertion.description));
+                writeln!(w, "{} {}", style.green("✓"), style.safe(&assertion.description))?;
             } else {
-                println!(
+                writeln!(w, 
                     "{} {} {}",
                     style.red("✗"),
                     style.safe(&assertion.description),
                     style.dim(&style.safe(&format!("(got {})", truncate(&assertion.actual, 80))))
-                );
+                )?;
             }
         }
     }
+    Ok(())
 }
 
 /// Pretty-print JSON; leave anything else alone; never dump raw binary.
@@ -399,6 +424,103 @@ mod tests {
         let style = Style { enabled: false, tty: false };
         let hostile = "\x1b[2K\rtext";
         assert_eq!(style.safe(hostile), hostile);
+    }
+
+    fn hostile_outcome() -> gabriel_engine::RunOutcome {
+        use gabriel_engine::{RunOutcome, SentRequest};
+        let body = concat!(
+            r#"{"echoed_token":"sk-live-CANARY-7788","#,
+            "\"lie\":\"\x1b[2K\rgabriel: 0 problems\"}"
+        );
+        let mut headers = FieldMap::default();
+        headers.set("Content-Type", "application/json");
+        headers.set("X-Reflected", "sk-live-CANARY-7788");
+
+        RunOutcome {
+            sent: SentRequest {
+                method: "GET".into(),
+                url: "https://api.test/?token=sk-live-CANARY-7788".into(),
+                headers: vec![("Authorization".into(), "Bearer sk-live-CANARY-7788".into())],
+                body: Some("{\"token\":\"sk-live-CANARY-7788\"}".into()),
+            },
+            response: ExecutedResponse {
+                status: 200,
+                status_text: "OK".into(),
+                http_version: "HTTP/2".into(),
+                headers,
+                body: body.as_bytes().to_vec(),
+                timings: Timings::default(),
+                final_url: "https://api.test/".into(),
+            },
+            assertions: Vec::new(),
+            captured: vec![("token".into(), "sk-live-CANARY-7788".into())],
+            redirects: Vec::new(),
+        }
+    }
+
+    /// The security-relevant composition: every field printed must be both
+    /// redacted *and* escape-defused. Testing the two helpers separately does
+    /// not prove they are actually applied together at every print site — which
+    /// is exactly where a leak would hide.
+    #[test]
+    fn nothing_printed_leaks_a_secret_or_an_escape_sequence() {
+        let style = Style { enabled: true, tty: true };
+        let redactor = Redactor::new(vec!["sk-live-CANARY-7788".to_string()]);
+
+        let mut out = Vec::new();
+        write_run(&mut out, &hostile_outcome(), &style, &redactor, true, 10_000).unwrap();
+        let printed = String::from_utf8(out).expect("utf-8 output");
+
+        assert!(
+            !printed.contains("sk-live-CANARY-7788"),
+            "a secret reached the output:\n{printed}"
+        );
+        // Gabriel's own colour codes are ESC too, so look for the payload's.
+        assert!(
+            !printed.contains("\x1b[2K") && !printed.contains('\r'),
+            "a hostile escape sequence survived:\n{printed:?}"
+        );
+        // And the output is still useful.
+        assert!(printed.contains("redacted"));
+        assert!(printed.contains("gabriel: 0 problems"), "text should survive, inert");
+    }
+
+    #[test]
+    fn secrets_are_masked_in_the_url_headers_body_and_captures() {
+        let style = Style { enabled: false, tty: false };
+        let redactor = Redactor::new(vec!["sk-live-CANARY-7788".to_string()]);
+
+        let mut out = Vec::new();
+        write_run(&mut out, &hostile_outcome(), &style, &redactor, true, 10_000).unwrap();
+        let printed = String::from_utf8(out).unwrap();
+
+        // Six distinct places the same secret appears: the URL, the request's
+        // Authorization header, the request body, a response header echoing it
+        // back, the response body, and the captured variable. All six masked.
+        assert_eq!(
+            printed.matches("••••redacted••••").count(),
+            6,
+            "a secret escaped one of the six print sites:\n{printed}"
+        );
+    }
+
+    /// A response header echoing a secret is a real pattern (debug endpoints do
+    /// it), and it must not be printed just because it came back rather than
+    /// went out.
+    #[test]
+    fn a_secret_reflected_in_a_response_header_is_masked_too() {
+        let style = Style { enabled: false, tty: false };
+        let redactor = Redactor::new(vec!["sk-live-CANARY-7788".to_string()]);
+
+        let mut out = Vec::new();
+        write_run(&mut out, &hostile_outcome(), &style, &redactor, true, 10_000).unwrap();
+        let printed = String::from_utf8(out).unwrap();
+
+        let reflected = printed
+            .lines()
+            .find(|l| l.to_lowercase().contains("x-reflected"))
+            .expect("the reflected header should be printed");
+        assert!(!reflected.contains("sk-live-CANARY"), "leaked: {reflected}");
     }
 
     #[test]

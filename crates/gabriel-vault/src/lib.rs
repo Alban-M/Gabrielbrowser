@@ -188,8 +188,11 @@ impl Vault {
                 )
             }
         };
-        let vault = Vault { path, id, key, kdf, secrets: BTreeMap::new(), dirty: true };
+        let mut vault = Vault { path, id, key, kdf, secrets: BTreeMap::new(), dirty: true };
         vault.save()?;
+        // Written to disk, so no longer pending: leaving the flag set makes
+        // `save_if_dirty` rewrite an unchanged vault.
+        vault.dirty = false;
         Ok(vault)
     }
 
@@ -418,6 +421,51 @@ mod tests {
             resolver.resolve("Bearer {{secret:api_token}}").unwrap(),
             "Bearer sk-live-abc"
         );
+    }
+
+    /// Which key source is chosen is a security decision, and it is made from an
+    /// environment variable — so it deserves a test even though it is three
+    /// lines long.
+    #[test]
+    fn the_key_source_follows_the_environment() {
+        // Serialised against other tests that touch the same variable.
+        static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _held = GUARD.lock().unwrap_or_else(|e| e.into_inner());
+
+        let previous = std::env::var("GABRIEL_VAULT_PASSPHRASE").ok();
+
+        unsafe { std::env::remove_var("GABRIEL_VAULT_PASSPHRASE") };
+        assert!(matches!(KeySource::from_environment(), KeySource::Keychain));
+
+        unsafe { std::env::set_var("GABRIEL_VAULT_PASSPHRASE", "a-real-passphrase") };
+        match KeySource::from_environment() {
+            KeySource::Passphrase(p) => assert_eq!(p, "a-real-passphrase"),
+            other => panic!("expected a passphrase, got {other:?}"),
+        }
+
+        // An empty value must not be mistaken for a passphrase.
+        unsafe { std::env::set_var("GABRIEL_VAULT_PASSPHRASE", "") };
+        assert!(matches!(KeySource::from_environment(), KeySource::Keychain));
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("GABRIEL_VAULT_PASSPHRASE", value) },
+            None => unsafe { std::env::remove_var("GABRIEL_VAULT_PASSPHRASE") },
+        }
+    }
+
+    #[test]
+    fn saving_only_happens_when_something_changed() {
+        let path = temp_path("vault.json");
+        let mut vault = Vault::open(&path, &passphrase()).unwrap();
+        let first = std::fs::read(&path).unwrap();
+
+        // Nothing changed: the file must not be rewritten with a fresh nonce.
+        vault.save_if_dirty().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), first);
+
+        vault.set("k", "v");
+        vault.save_if_dirty().unwrap();
+        assert_ne!(std::fs::read(&path).unwrap(), first, "a change was not persisted");
     }
 
     #[test]

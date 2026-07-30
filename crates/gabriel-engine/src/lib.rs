@@ -903,6 +903,68 @@ mod tests {
     }
 
     #[test]
+    fn assertion_helpers_summarise_the_outcome() {
+        let response = response_with(200, &[("Content-Type", "application/json")], r#"{"ok":true}"#);
+        let pass = Assertion {
+            target: AssertTarget::Status,
+            path: None,
+            op: AssertOp::Eq,
+            value: Some(toml::Value::Integer(200)),
+        };
+        let fail = Assertion {
+            target: AssertTarget::Status,
+            path: None,
+            op: AssertOp::Eq,
+            value: Some(toml::Value::Integer(500)),
+        };
+
+        let outcome = RunOutcome {
+            sent: SentRequest {
+                method: "GET".into(),
+                url: "https://api.test".into(),
+                headers: Vec::new(),
+                body: None,
+            },
+            response: response.clone(),
+            assertions: vec![
+                assertion::evaluate(&pass, &response),
+                assertion::evaluate(&fail, &response),
+            ],
+            captured: Vec::new(),
+            redirects: Vec::new(),
+        };
+
+        assert!(!outcome.assertions_passed());
+        assert_eq!(outcome.failed_assertions().count(), 1);
+
+        let all_good = RunOutcome { assertions: vec![assertion::evaluate(&pass, &response)], ..outcome };
+        assert!(all_good.assertions_passed());
+        assert_eq!(all_good.failed_assertions().count(), 0);
+    }
+
+    #[test]
+    fn toml_values_convert_to_json_for_comparison() {
+        use assertion::toml_to_json;
+        assert_eq!(toml_to_json(&toml::Value::Integer(7)), serde_json::json!(7));
+        assert_eq!(toml_to_json(&toml::Value::Boolean(true)), serde_json::json!(true));
+        assert_eq!(
+            toml_to_json(&toml::Value::Array(vec![toml::Value::Integer(1)])),
+            serde_json::json!([1])
+        );
+        let mut table = toml::Table::new();
+        table.insert("k".into(), toml::Value::String("v".into()));
+        assert_eq!(toml_to_json(&toml::Value::Table(table)), serde_json::json!({"k":"v"}));
+    }
+
+    #[test]
+    fn a_context_can_name_its_session() {
+        let mut resolver = Resolver::new();
+        let mut sessions = SessionStore::new();
+        let ctx = RunContext::new(&mut resolver, &mut sessions).with_session("work");
+        assert_eq!(ctx.session, "work");
+    }
+
+    #[test]
     fn form_encoding_escapes_reserved_characters() {
         assert_eq!(urlencode("a b&c=d"), "a+b%26c%3Dd");
         assert_eq!(urlencode("héllo"), "h%C3%A9llo");

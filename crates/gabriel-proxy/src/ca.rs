@@ -191,11 +191,13 @@ fn ca_params() -> Result<CertificateParams> {
 }
 
 fn first_certificate(pem: &str, path: &Path) -> Result<CertificateDer<'static>> {
-    rustls_pemfile::certs(&mut pem.as_bytes())
-        .next()
-        .transpose()
-        .map_err(|source| CaError::Io { path: path.to_path_buf(), source })?
-        .ok_or_else(|| CaError::NoCertificate { path: path.to_path_buf() })
+    // Parsed with rustls-pki-types rather than rustls-pemfile: the latter was
+    // marked unmaintained (RUSTSEC-2025-0134), and pki-types is already in the
+    // tree because rustls depends on it, so this removes a dependency instead
+    // of adding one.
+    use rustls::pki_types::pem::PemObject as _;
+    CertificateDer::from_pem_slice(pem.as_bytes())
+        .map_err(|_| CaError::NoCertificate { path: path.to_path_buf() })
 }
 
 fn read(path: &Path) -> Result<String> {
