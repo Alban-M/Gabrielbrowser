@@ -50,7 +50,10 @@ impl Pkce {
         // challenge = BASE64URL-NOPAD(SHA256(ASCII(verifier)))
         let digest = Sha256::digest(verifier.as_bytes());
         let challenge = base64url_nopad(&digest);
-        Pkce { verifier, challenge }
+        Pkce {
+            verifier,
+            challenge,
+        }
     }
 }
 
@@ -83,7 +86,9 @@ pub fn random_state() -> String {
 /// uniform by construction and needs no rejection sampling.
 fn random_unreserved(bytes: usize) -> String {
     debug_assert!(
-        VERIFIER_ALPHABET.iter().all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(b)),
+        VERIFIER_ALPHABET
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(b)),
         "the alphabet must stay within the unreserved set"
     );
     let mut buffer = vec![0u8; bytes];
@@ -121,7 +126,11 @@ pub struct FlowOptions {
 
 impl Default for FlowOptions {
     fn default() -> Self {
-        FlowOptions { port: 0, open_browser: true, timeout: Duration::from_secs(300) }
+        FlowOptions {
+            port: 0,
+            open_browser: true,
+            timeout: Duration::from_secs(300),
+        }
     }
 }
 
@@ -195,9 +204,15 @@ pub fn build_authorize_url(
         params.push(("audience", audience.clone()));
     }
 
-    let query: Vec<String> =
-        params.iter().map(|(k, v)| format!("{k}={}", urlencode(v))).collect();
-    let separator = if authorize_url.contains('?') { '&' } else { '?' };
+    let query: Vec<String> = params
+        .iter()
+        .map(|(k, v)| format!("{k}={}", urlencode(v)))
+        .collect();
+    let separator = if authorize_url.contains('?') {
+        '&'
+    } else {
+        '?'
+    };
     format!("{authorize_url}{separator}{}", query.join("&"))
 }
 
@@ -243,8 +258,15 @@ async fn wait_for_code(
                 .get("error_description")
                 .cloned()
                 .unwrap_or_else(|| error.clone());
-            let _ = respond(&mut stream, 400, "Authorization failed. You can close this tab.").await;
-            return Err(EngineError::Auth(format!("the provider refused: {error} — {description}")));
+            let _ = respond(
+                &mut stream,
+                400,
+                "Authorization failed. You can close this tab.",
+            )
+            .await;
+            return Err(EngineError::Auth(format!(
+                "the provider refused: {error} — {description}"
+            )));
         }
 
         // Check state before the code is even read: a mismatch means this
@@ -389,7 +411,10 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 fn urlencode(input: &str) -> String {
@@ -456,7 +481,10 @@ mod tests {
     #[test]
     fn the_challenge_matches_the_rfc_test_vector() {
         let pkce = Pkce::from_verifier("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_string());
-        assert_eq!(pkce.challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert_eq!(
+            pkce.challenge,
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
     }
 
     #[test]
@@ -468,18 +496,27 @@ mod tests {
             pkce.verifier.len()
         );
         assert!(
-            pkce.verifier.chars().all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c)),
+            pkce.verifier
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c)),
             "verifier contains characters outside the unreserved set"
         );
         // The challenge is base64url without padding.
-        assert!(!pkce.challenge.contains('=') && !pkce.challenge.contains('+') && !pkce.challenge.contains('/'));
+        assert!(
+            !pkce.challenge.contains('=')
+                && !pkce.challenge.contains('+')
+                && !pkce.challenge.contains('/')
+        );
     }
 
     #[test]
     fn every_verifier_is_different() {
         let mut seen = std::collections::HashSet::new();
         for _ in 0..200 {
-            assert!(seen.insert(Pkce::generate().verifier), "a verifier repeated");
+            assert!(
+                seen.insert(Pkce::generate().verifier),
+                "a verifier repeated"
+            );
         }
     }
 
@@ -488,7 +525,11 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for _ in 0..200 {
             let state = random_state();
-            assert!(state.chars().all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c)));
+            assert!(
+                state
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c))
+            );
             assert!(seen.insert(state), "a state repeated");
         }
     }
@@ -514,7 +555,10 @@ mod tests {
         assert_eq!(params["code_challenge_method"], "S256");
         assert_eq!(params["scope"], "openid profile");
         // The verifier must never appear in the URL the browser sees.
-        assert!(!url.contains("verifier"), "the verifier leaked into the authorize URL: {url}");
+        assert!(
+            !url.contains("verifier"),
+            "the verifier leaked into the authorize URL: {url}"
+        );
     }
 
     #[test]
@@ -542,7 +586,10 @@ mod tests {
             &Pkce::from_verifier("v".into()),
             "s",
         );
-        assert!(url.contains("audience=https%3A%2F%2Fapi.acme.test"), "{url}");
+        assert!(
+            url.contains("audience=https%3A%2F%2Fapi.acme.test"),
+            "{url}"
+        );
     }
 
     #[test]
@@ -569,7 +616,12 @@ mod tests {
         let error = futures_executor_block(async {
             authorization_code(&config, &FlowOptions::default(), |_| {}).await
         });
-        assert!(error.unwrap_err().to_string().contains("not an authorization-code"));
+        assert!(
+            error
+                .unwrap_err()
+                .to_string()
+                .contains("not an authorization-code")
+        );
     }
 
     #[test]
@@ -579,7 +631,12 @@ mod tests {
         let error = futures_executor_block(async {
             authorization_code(&config, &FlowOptions::default(), |_| {}).await
         });
-        assert!(error.unwrap_err().to_string().contains("authorize_url is required"));
+        assert!(
+            error
+                .unwrap_err()
+                .to_string()
+                .contains("authorize_url is required")
+        );
     }
 
     /// Tiny blocking helper so these two checks need no async test harness.

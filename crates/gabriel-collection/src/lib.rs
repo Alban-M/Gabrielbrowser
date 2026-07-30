@@ -48,12 +48,17 @@ pub enum CollectionError {
     AmbiguousRequest { query: String, matches: Vec<String> },
 
     #[error("no environment named `{name}` (have: {})", if .available.is_empty() { "none".to_string() } else { .available.join(", ") })]
-    NoSuchEnvironment { name: String, available: Vec<String> },
+    NoSuchEnvironment {
+        name: String,
+        available: Vec<String>,
+    },
 
     #[error("a collection already exists at {0}")]
     AlreadyExists(PathBuf),
 
-    #[error("`{0}` would write outside the collection — request paths are relative to `requests/` and may not contain `..`")]
+    #[error(
+        "`{0}` would write outside the collection — request paths are relative to `requests/` and may not contain `..`"
+    )]
     UnsafePath(String),
 }
 
@@ -201,7 +206,11 @@ impl Collection {
                             CollectionError::Parse { message, .. } => message.clone(),
                             other => other.to_string(),
                         };
-                        problems.push(LoadProblem { path: path.to_path_buf(), id, message });
+                        problems.push(LoadProblem {
+                            path: path.to_path_buf(),
+                            id,
+                            message,
+                        });
                         continue;
                     }
                 };
@@ -211,11 +220,20 @@ impl Collection {
                         .and_then(|s| s.to_str())
                         .map(str::to_string);
                 }
-                requests.push(RequestEntry { path: path.to_path_buf(), id, spec });
+                requests.push(RequestEntry {
+                    path: path.to_path_buf(),
+                    id,
+                    spec,
+                });
             }
         }
 
-        Ok(Collection { root, manifest, requests, problems })
+        Ok(Collection {
+            root,
+            manifest,
+            requests,
+            problems,
+        })
     }
 
     /// Create a new collection, with a starter request and environment so the
@@ -350,7 +368,10 @@ impl Collection {
     }
 
     pub fn environment(&self, name: &str) -> Result<Environment> {
-        let path = self.root.join(ENVIRONMENTS_DIR).join(format!("{name}.toml"));
+        let path = self
+            .root
+            .join(ENVIRONMENTS_DIR)
+            .join(format!("{name}.toml"));
         if !path.is_file() {
             return Err(CollectionError::NoSuchEnvironment {
                 name: name.to_string(),
@@ -388,7 +409,9 @@ impl Collection {
             spec.auth = Some(auth);
         }
 
-        if spec.settings.is_default() && let Some(settings) = defaults.settings.clone() {
+        if spec.settings.is_default()
+            && let Some(settings) = defaults.settings.clone()
+        {
             spec.settings = settings;
         }
 
@@ -407,7 +430,11 @@ impl Collection {
         write_toml(&path, spec)?;
 
         let id = rel.to_string();
-        let entry = RequestEntry { path: path.clone(), id: id.clone(), spec: spec.clone() };
+        let entry = RequestEntry {
+            path: path.clone(),
+            id: id.clone(),
+            spec: spec.clone(),
+        };
         match self.requests.iter_mut().find(|r| r.id == id) {
             Some(existing) => *existing = entry,
             None => {
@@ -501,7 +528,11 @@ pub fn slugify(input: &str) -> String {
         }
     }
     let trimmed = out.trim_matches('-').to_string();
-    if trimmed.is_empty() { "request".to_string() } else { trimmed }
+    if trimmed.is_empty() {
+        "request".to_string()
+    } else {
+        trimmed
+    }
 }
 
 fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
@@ -583,11 +614,26 @@ mod tests {
         let dir = temp_dir();
         let collection = Collection::init(&dir, "demo").unwrap();
         let ignore = std::fs::read_to_string(collection.runtime_dir().join(".gitignore")).unwrap();
-        assert!(ignore.contains('*'), "vault and captures would be committed");
+        assert!(
+            ignore.contains('*'),
+            "vault and captures would be committed"
+        );
         // Everything holding credentials must live under it.
-        assert!(collection.vault_path().starts_with(collection.runtime_dir()));
-        assert!(collection.sessions_path().starts_with(collection.runtime_dir()));
-        assert!(collection.captures_path().starts_with(collection.runtime_dir()));
+        assert!(
+            collection
+                .vault_path()
+                .starts_with(collection.runtime_dir())
+        );
+        assert!(
+            collection
+                .sessions_path()
+                .starts_with(collection.runtime_dir())
+        );
+        assert!(
+            collection
+                .captures_path()
+                .starts_with(collection.runtime_dir())
+        );
     }
 
     #[test]
@@ -615,7 +661,10 @@ mod tests {
         let dir = temp_dir();
         let mut collection = Collection::init(&dir, "demo").unwrap();
         collection
-            .save_request("users/get-user", &RequestSpec::new("GET", "{{base_url}}/users/1"))
+            .save_request(
+                "users/get-user",
+                &RequestSpec::new("GET", "{{base_url}}/users/1"),
+            )
             .unwrap();
 
         let reloaded = Collection::load(collection.root()).unwrap();
@@ -631,9 +680,15 @@ mod tests {
         spec.name = Some("Fetch one user".into());
         collection.save_request("users/get-user", &spec).unwrap();
 
-        assert_eq!(collection.find("users/get-user").unwrap().id, "users/get-user");
+        assert_eq!(
+            collection.find("users/get-user").unwrap().id,
+            "users/get-user"
+        );
         assert_eq!(collection.find("get-user").unwrap().id, "users/get-user");
-        assert_eq!(collection.find("Fetch one user").unwrap().id, "users/get-user");
+        assert_eq!(
+            collection.find("Fetch one user").unwrap().id,
+            "users/get-user"
+        );
     }
 
     #[test]
@@ -645,7 +700,10 @@ mod tests {
         collection.save_request("b/list", &spec).unwrap();
 
         let message = collection.find("list").unwrap_err().to_string();
-        assert!(message.contains("a/list") && message.contains("b/list"), "{message}");
+        assert!(
+            message.contains("a/list") && message.contains("b/list"),
+            "{message}"
+        );
     }
 
     #[test]
@@ -658,7 +716,11 @@ mod tests {
             vars: [("base_url".to_string(), "https://api.test".to_string())].into(),
             secrets: [("api_token".to_string(), "prod_api_token".to_string())].into(),
         };
-        write_toml(&collection.root().join(ENVIRONMENTS_DIR).join("prod.toml"), &env).unwrap();
+        write_toml(
+            &collection.root().join(ENVIRONMENTS_DIR).join("prod.toml"),
+            &env,
+        )
+        .unwrap();
 
         let vars = collection.environment("prod").unwrap().variables();
         assert_eq!(vars.get("base_url").unwrap(), "https://api.test");
@@ -670,7 +732,10 @@ mod tests {
         let dir = temp_dir();
         let collection = Collection::init(&dir, "demo").unwrap();
         let message = collection.environment("staging").unwrap_err().to_string();
-        assert!(message.contains("dev"), "should suggest what's available: {message}");
+        assert!(
+            message.contains("dev"),
+            "should suggest what's available: {message}"
+        );
     }
 
     #[test]
@@ -691,9 +756,19 @@ mod tests {
     fn defaults_fill_gaps_without_overriding_a_request() {
         let dir = temp_dir();
         let mut collection = Collection::init(&dir, "demo").unwrap();
-        collection.manifest.defaults.headers.set("Accept", "application/json");
-        collection.manifest.defaults.headers.set("X-Client", "gabriel");
-        collection.manifest.defaults.auth = Some(Auth::Bearer { token: "{{secret:t}}".into() });
+        collection
+            .manifest
+            .defaults
+            .headers
+            .set("Accept", "application/json");
+        collection
+            .manifest
+            .defaults
+            .headers
+            .set("X-Client", "gabriel");
+        collection.manifest.defaults.auth = Some(Auth::Bearer {
+            token: "{{secret:t}}".into(),
+        });
 
         let mut spec = RequestSpec::new("GET", "https://x.test");
         spec.headers.set("Accept", "text/plain");
@@ -702,14 +777,21 @@ mod tests {
         let merged = collection.apply_defaults(&spec);
         assert_eq!(merged.headers.get_first("Accept"), Some("text/plain"));
         assert_eq!(merged.headers.get_first("X-Client"), Some("gabriel"));
-        assert_eq!(merged.auth, Some(Auth::Bearer { token: "{{secret:t}}".into() }));
+        assert_eq!(
+            merged.auth,
+            Some(Auth::Bearer {
+                token: "{{secret:t}}".into()
+            })
+        );
     }
 
     #[test]
     fn explicit_auth_survives_defaults() {
         let dir = temp_dir();
         let mut collection = Collection::init(&dir, "demo").unwrap();
-        collection.manifest.defaults.auth = Some(Auth::Bearer { token: "default".into() });
+        collection.manifest.defaults.auth = Some(Auth::Bearer {
+            token: "default".into(),
+        });
 
         let mut spec = RequestSpec::new("GET", "https://x.test");
         spec.auth = Some(Auth::None);
@@ -720,10 +802,17 @@ mod tests {
     fn saving_twice_updates_in_place() {
         let dir = temp_dir();
         let mut collection = Collection::init(&dir, "demo").unwrap();
-        collection.save_request("x", &RequestSpec::new("GET", "https://a.test")).unwrap();
-        collection.save_request("x", &RequestSpec::new("POST", "https://b.test")).unwrap();
+        collection
+            .save_request("x", &RequestSpec::new("GET", "https://a.test"))
+            .unwrap();
+        collection
+            .save_request("x", &RequestSpec::new("POST", "https://b.test"))
+            .unwrap();
 
-        assert_eq!(collection.requests().iter().filter(|r| r.id == "x").count(), 1);
+        assert_eq!(
+            collection.requests().iter().filter(|r| r.id == "x").count(),
+            1
+        );
         assert_eq!(collection.find("x").unwrap().spec.method, "POST");
     }
 
@@ -761,26 +850,50 @@ mod tests {
         let mut collection = Collection::init(&dir, "demo").unwrap();
         let spec = RequestSpec::new("GET", "https://x.test");
 
-        for accepted in ["users/create", "a/b/c/deep", "./users/list", "trailing/", "x.toml"] {
+        for accepted in [
+            "users/create",
+            "a/b/c/deep",
+            "./users/list",
+            "trailing/",
+            "x.toml",
+        ] {
             assert!(
                 collection.save_request(accepted, &spec).is_ok(),
                 "`{accepted}` should be allowed"
             );
         }
-        assert!(collection.root().join(REQUESTS_DIR).join("users/create.toml").is_file());
-        assert!(collection.root().join(REQUESTS_DIR).join("users/list.toml").is_file());
+        assert!(
+            collection
+                .root()
+                .join(REQUESTS_DIR)
+                .join("users/create.toml")
+                .is_file()
+        );
+        assert!(
+            collection
+                .root()
+                .join(REQUESTS_DIR)
+                .join("users/list.toml")
+                .is_file()
+        );
     }
 
     #[test]
     fn unique_paths_avoid_clobbering_existing_requests() {
         let dir = temp_dir();
         let mut collection = Collection::init(&dir, "demo").unwrap();
-        assert_eq!(collection.unique_request_path("GET /v1/users"), "get-v1-users");
+        assert_eq!(
+            collection.unique_request_path("GET /v1/users"),
+            "get-v1-users"
+        );
 
         collection
             .save_request("get-v1-users", &RequestSpec::new("GET", "https://x.test"))
             .unwrap();
-        assert_eq!(collection.unique_request_path("GET /v1/users"), "get-v1-users-2");
+        assert_eq!(
+            collection.unique_request_path("GET /v1/users"),
+            "get-v1-users-2"
+        );
     }
 
     #[test]
@@ -802,7 +915,9 @@ mod tests {
         let mut spec = RequestSpec::new("POST", "{{base_url}}/users");
         spec.name = Some("Create".into());
         spec.headers.set("Content-Type", "application/json");
-        spec.body = Some(gabriel_core::model::Body::Json { content: "{\"a\":1}".into() });
+        spec.body = Some(gabriel_core::model::Body::Json {
+            content: "{\"a\":1}".into(),
+        });
         collection.save_request("users/create", &spec).unwrap();
 
         let reloaded = Collection::load(collection.root()).unwrap();

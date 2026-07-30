@@ -12,7 +12,9 @@ pub mod session;
 pub mod websocket;
 
 use assertion::AssertionOutcome;
-use gabriel_core::model::{ApiKeyLocation, Auth, Body, CaptureSource, OAuth2, OAuth2Grant, RequestSpec};
+use gabriel_core::model::{
+    ApiKeyLocation, Auth, Body, CaptureSource, OAuth2, OAuth2Grant, RequestSpec,
+};
 use gabriel_core::response::{ExecutedResponse, Timings};
 use gabriel_core::vars::Resolver;
 use gabriel_core::{Error as CoreError, jsonpath};
@@ -152,7 +154,9 @@ fn merge_cookie_headers(base: Option<&str>, fresher: Option<&str>) -> Option<Str
         (Some(only), None) | (None, Some(only)) => Some(only.to_string()),
         (Some(base), Some(fresher)) => {
             let name_of = |pair: &str| {
-                pair.split_once('=').map(|(n, _)| n.trim().to_string()).unwrap_or_default()
+                pair.split_once('=')
+                    .map(|(n, _)| n.trim().to_string())
+                    .unwrap_or_default()
             };
             let overridden: Vec<String> = fresher.split("; ").map(name_of).collect();
             let mut merged: Vec<&str> = fresher.split("; ").collect();
@@ -171,12 +175,19 @@ fn is_redirect(status: u16) -> bool {
 }
 
 fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
-    a.scheme() == b.scheme() && a.host_str() == b.host_str() && a.port_or_known_default() == b.port_or_known_default()
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
 }
 
 /// Headers that must not survive a cross-origin redirect.
 fn strip_credentials(headers: &mut Vec<(String, String)>) {
-    const SENSITIVE: &[&str] = &["authorization", "cookie", "proxy-authorization", "www-authenticate"];
+    const SENSITIVE: &[&str] = &[
+        "authorization",
+        "cookie",
+        "proxy-authorization",
+        "www-authenticate",
+    ];
     headers.retain(|(name, _)| !SENSITIVE.contains(&name.to_ascii_lowercase().as_str()));
 }
 
@@ -217,7 +228,10 @@ impl Default for StreamLimits {
     fn default() -> Self {
         // A stream with no natural end needs *some* bound, or the CLI hangs
         // until the user reaches for Ctrl-C.
-        StreamLimits { max_events: 100, max_duration: Duration::from_secs(30) }
+        StreamLimits {
+            max_events: 100,
+            max_duration: Duration::from_secs(30),
+        }
     }
 }
 
@@ -311,12 +325,16 @@ impl Executor {
         // Auth that isn't session-derived is applied once, up front; the session
         // cookie is recomputed per hop, because the right cookie depends on
         // where the hop is going.
-        self.apply_auth(spec, ctx, &mut url, &mut header_list).await?;
+        self.apply_auth(spec, ctx, &mut url, &mut header_list)
+            .await?;
 
         let identity = resolve_identity(spec, ctx)?;
         let client = self.client_for(spec, identity.as_ref())?;
         let mut method = reqwest::Method::from_bytes(spec.method.as_bytes()).map_err(|e| {
-            EngineError::BadUrl { url: spec.method.clone(), message: e.to_string() }
+            EngineError::BadUrl {
+                url: spec.method.clone(),
+                message: e.to_string(),
+            }
         })?;
         let mut body_bytes = body.as_ref().map(|b| b.bytes.clone());
 
@@ -363,7 +381,10 @@ impl Executor {
             let mut response_headers = gabriel_core::model::FieldMap::default();
             let mut set_cookies = Vec::new();
             for (name, value) in raw.headers() {
-                let value = value.to_str().unwrap_or("<binary header value>").to_string();
+                let value = value
+                    .to_str()
+                    .unwrap_or("<binary header value>")
+                    .to_string();
                 if name.as_str().eq_ignore_ascii_case("set-cookie") {
                     set_cookies.push(value.clone());
                 }
@@ -412,7 +433,11 @@ impl Executor {
                 message: e.to_string(),
             })?;
 
-            hops.push(Hop { status: status.as_u16(), url: url.to_string(), location: next.to_string() });
+            hops.push(Hop {
+                status: status.as_u16(),
+                url: url.to_string(),
+                location: next.to_string(),
+            });
 
             // Credentials must not follow a redirect to another origin. This is
             // how tokens leak: an open redirect on the target hands your
@@ -536,12 +561,16 @@ impl Executor {
         {
             header_list.push(("Content-Type".to_string(), content_type));
         }
-        self.apply_auth(spec, ctx, &mut url, &mut header_list).await?;
+        self.apply_auth(spec, ctx, &mut url, &mut header_list)
+            .await?;
 
         let identity = resolve_identity(spec, ctx)?;
         let client = self.client_for_mode(spec, identity.as_ref(), true)?;
         let method = reqwest::Method::from_bytes(spec.method.as_bytes()).map_err(|e| {
-            EngineError::BadUrl { url: spec.method.clone(), message: e.to_string() }
+            EngineError::BadUrl {
+                url: spec.method.clone(),
+                message: e.to_string(),
+            }
         })?;
 
         let mut request = client.request(method, url.clone());
@@ -565,8 +594,10 @@ impl Executor {
         let status = response.status();
         let mut response_headers = gabriel_core::model::FieldMap::default();
         for (name, value) in response.headers() {
-            response_headers
-                .insert(name.as_str(), value.to_str().unwrap_or("<binary header value>"));
+            response_headers.insert(
+                name.as_str(),
+                value.to_str().unwrap_or("<binary header value>"),
+            );
         }
 
         let sent = SentRequest {
@@ -586,7 +617,11 @@ impl Executor {
             status_text: status.canonical_reason().unwrap_or("").to_string(),
             headers: response_headers,
             events: Vec::new(),
-            ended: if is_stream { StreamEnd::Closed } else { StreamEnd::NotAStream },
+            ended: if is_stream {
+                StreamEnd::Closed
+            } else {
+                StreamEnd::NotAStream
+            },
             duration_ms: 0,
         };
 
@@ -704,7 +739,11 @@ impl Executor {
                 let encoded = gabriel_core::b64_encode(format!("{username}:{password}").as_bytes());
                 header_list.push(("Authorization".to_string(), format!("Basic {encoded}")));
             }
-            Some(Auth::ApiKey { key, value, location }) => {
+            Some(Auth::ApiKey {
+                key,
+                value,
+                location,
+            }) => {
                 let key = ctx.resolver.resolve(key)?;
                 let value = ctx.resolver.resolve(value)?;
                 match location {
@@ -788,7 +827,9 @@ impl Executor {
             builder = builder.identity(parsed);
         }
 
-        let client = builder.build().map_err(|e| EngineError::Client(e.to_string()))?;
+        let client = builder
+            .build()
+            .map_err(|e| EngineError::Client(e.to_string()))?;
         self.clients.insert(key, client.clone());
         Ok(client)
     }
@@ -807,10 +848,15 @@ impl Executor {
                 bytes: ctx.resolver.resolve(content)?.into_bytes(),
                 content_type: Some("application/json".to_string()),
             },
-            Body::Text { content, content_type } => PreparedBody {
+            Body::Text {
+                content,
+                content_type,
+            } => PreparedBody {
                 bytes: ctx.resolver.resolve(content)?.into_bytes(),
                 content_type: Some(
-                    content_type.clone().unwrap_or_else(|| "text/plain".to_string()),
+                    content_type
+                        .clone()
+                        .unwrap_or_else(|| "text/plain".to_string()),
                 ),
             },
             Body::Form { fields } => {
@@ -828,7 +874,11 @@ impl Executor {
                     content_type: Some("application/x-www-form-urlencoded".to_string()),
                 }
             }
-            Body::GraphQl { query, variables, operation_name } => {
+            Body::GraphQl {
+                query,
+                variables,
+                operation_name,
+            } => {
                 let mut payload = serde_json::Map::new();
                 payload.insert("query".into(), ctx.resolver.resolve(query)?.into());
                 if let Some(vars) = variables {
@@ -848,8 +898,10 @@ impl Executor {
             Body::File { path, content_type } => {
                 let resolved = ctx.resolver.resolve(path)?;
                 let full = ctx.base_dir.join(&resolved);
-                let bytes = std::fs::read(&full)
-                    .map_err(|source| EngineError::BodyFile { path: full.clone(), source })?;
+                let bytes = std::fs::read(&full).map_err(|source| EngineError::BodyFile {
+                    path: full.clone(),
+                    source,
+                })?;
                 PreparedBody {
                     bytes,
                     content_type: content_type
@@ -891,7 +943,11 @@ impl Executor {
                 headers.push(("Authorization".to_string(), format!("Basic {encoded}")));
             }
 
-            Auth::ApiKey { key, value, location } => {
+            Auth::ApiKey {
+                key,
+                value,
+                location,
+            } => {
                 let key = ctx.resolver.resolve(key)?;
                 let value = ctx.resolver.resolve(value)?;
                 match location {
@@ -917,9 +973,16 @@ impl Executor {
     ) -> Result<String> {
         let token_url = ctx.resolver.resolve(&config.token_url)?;
         let client_id = ctx.resolver.resolve(&config.client_id)?;
-        let scope = config.scope.as_ref().map(|s| ctx.resolver.resolve(s)).transpose()?;
+        let scope = config
+            .scope
+            .as_ref()
+            .map(|s| ctx.resolver.resolve(s))
+            .transpose()?;
 
-        let cache_key = format!("{token_url}|{client_id}|{}", scope.clone().unwrap_or_default());
+        let cache_key = format!(
+            "{token_url}|{client_id}|{}",
+            scope.clone().unwrap_or_default()
+        );
         // Refresh 30s early: a token that expires mid-flight is a flaky test.
         if let Some(cached) = self.oauth_tokens.get(&cache_key)
             && cached.expires_at_ms > gabriel_core::now_ms() + 30_000
@@ -973,11 +1036,10 @@ impl Executor {
             request = request.header("Authorization", format!("Basic {encoded}"));
         }
 
-        let response = request
-            .form(&form)
-            .send()
-            .await
-            .map_err(|e| EngineError::Auth(format!("token request to {token_url} failed: {e}")))?;
+        let response =
+            request.form(&form).send().await.map_err(|e| {
+                EngineError::Auth(format!("token request to {token_url} failed: {e}"))
+            })?;
 
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
@@ -995,7 +1057,10 @@ impl Executor {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EngineError::Auth("token response has no access_token".into()))?
             .to_string();
-        let expires_in = payload.get("expires_in").and_then(|v| v.as_u64()).unwrap_or(3600);
+        let expires_in = payload
+            .get("expires_in")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3600);
 
         self.oauth_tokens.insert(
             cache_key,
@@ -1042,9 +1107,10 @@ fn apply_captures(
                     })
             }),
             CaptureSource::Body => match (&json, capture.path.as_deref()) {
-                (Some(json), Some(path)) => {
-                    jsonpath::select(json, path).ok().flatten().map(jsonpath::to_plain_string)
-                }
+                (Some(json), Some(path)) => jsonpath::select(json, path)
+                    .ok()
+                    .flatten()
+                    .map(jsonpath::to_plain_string),
                 (_, None) => Some(response.text().into_owned()),
                 (None, Some(_)) => None,
             },
@@ -1087,7 +1153,10 @@ fn resolve_identity(
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     pem.hash(&mut hasher);
-    Ok(Some(IdentityMaterial { fingerprint: hasher.finish(), pem }))
+    Ok(Some(IdentityMaterial {
+        fingerprint: hasher.finish(),
+        pem,
+    }))
 }
 
 /// reqwest's own message stops at "error sending request"; the cause is in the
@@ -1144,19 +1213,34 @@ mod tests {
     fn captures_bind_body_headers_status_and_cookies() {
         let mut spec = RequestSpec::new("GET", "https://api.test");
         spec.captures = vec![
-            VarCapture { var: "id".into(), from: CaptureSource::Body, path: Some("data.id".into()) },
+            VarCapture {
+                var: "id".into(),
+                from: CaptureSource::Body,
+                path: Some("data.id".into()),
+            },
             VarCapture {
                 var: "region".into(),
                 from: CaptureSource::Header,
                 path: Some("x-region".into()),
             },
-            VarCapture { var: "code".into(), from: CaptureSource::Status, path: None },
-            VarCapture { var: "sid".into(), from: CaptureSource::Cookie, path: Some("sid".into()) },
+            VarCapture {
+                var: "code".into(),
+                from: CaptureSource::Status,
+                path: None,
+            },
+            VarCapture {
+                var: "sid".into(),
+                from: CaptureSource::Cookie,
+                path: Some("sid".into()),
+            },
         ];
 
         let response = response_with(
             201,
-            &[("X-Region", "eu-west-1"), ("Set-Cookie", "sid=abc123; Path=/")],
+            &[
+                ("X-Region", "eu-west-1"),
+                ("Set-Cookie", "sid=abc123; Path=/"),
+            ],
             r#"{"data":{"id":"u_7"}}"#,
         );
 
@@ -1198,7 +1282,8 @@ mod tests {
 
     #[test]
     fn assertions_are_evaluated_against_the_response() {
-        let asserts = [Assertion {
+        let asserts = [
+            Assertion {
                 target: AssertTarget::Status,
                 path: None,
                 op: AssertOp::Eq,
@@ -1209,16 +1294,27 @@ mod tests {
                 path: Some("ok".into()),
                 op: AssertOp::Eq,
                 value: Some(toml::Value::Boolean(true)),
-            }];
-        let response =
-            response_with(200, &[("Content-Type", "application/json")], r#"{"ok":true}"#);
-        let outcomes: Vec<_> = asserts.iter().map(|a| assertion::evaluate(a, &response)).collect();
+            },
+        ];
+        let response = response_with(
+            200,
+            &[("Content-Type", "application/json")],
+            r#"{"ok":true}"#,
+        );
+        let outcomes: Vec<_> = asserts
+            .iter()
+            .map(|a| assertion::evaluate(a, &response))
+            .collect();
         assert!(outcomes.iter().all(|o| o.passed), "{outcomes:?}");
     }
 
     #[test]
     fn assertion_helpers_summarise_the_outcome() {
-        let response = response_with(200, &[("Content-Type", "application/json")], r#"{"ok":true}"#);
+        let response = response_with(
+            200,
+            &[("Content-Type", "application/json")],
+            r#"{"ok":true}"#,
+        );
         let pass = Assertion {
             target: AssertTarget::Status,
             path: None,
@@ -1251,7 +1347,10 @@ mod tests {
         assert!(!outcome.assertions_passed());
         assert_eq!(outcome.failed_assertions().count(), 1);
 
-        let all_good = RunOutcome { assertions: vec![assertion::evaluate(&pass, &response)], ..outcome };
+        let all_good = RunOutcome {
+            assertions: vec![assertion::evaluate(&pass, &response)],
+            ..outcome
+        };
         assert!(all_good.assertions_passed());
         assert_eq!(all_good.failed_assertions().count(), 0);
     }
@@ -1260,14 +1359,20 @@ mod tests {
     fn toml_values_convert_to_json_for_comparison() {
         use assertion::toml_to_json;
         assert_eq!(toml_to_json(&toml::Value::Integer(7)), serde_json::json!(7));
-        assert_eq!(toml_to_json(&toml::Value::Boolean(true)), serde_json::json!(true));
+        assert_eq!(
+            toml_to_json(&toml::Value::Boolean(true)),
+            serde_json::json!(true)
+        );
         assert_eq!(
             toml_to_json(&toml::Value::Array(vec![toml::Value::Integer(1)])),
             serde_json::json!([1])
         );
         let mut table = toml::Table::new();
         table.insert("k".into(), toml::Value::String("v".into()));
-        assert_eq!(toml_to_json(&toml::Value::Table(table)), serde_json::json!({"k":"v"}));
+        assert_eq!(
+            toml_to_json(&toml::Value::Table(table)),
+            serde_json::json!({"k":"v"})
+        );
     }
 
     #[test]
@@ -1308,12 +1413,22 @@ mod tests {
         executor.client_for(&spec, None).unwrap();
         assert_eq!(executor.clients.len(), 1);
 
-        let one = IdentityMaterial { fingerprint: 1, pem: Vec::new() };
-        let two = IdentityMaterial { fingerprint: 2, pem: Vec::new() };
+        let one = IdentityMaterial {
+            fingerprint: 1,
+            pem: Vec::new(),
+        };
+        let two = IdentityMaterial {
+            fingerprint: 2,
+            pem: Vec::new(),
+        };
 
         // A bad PEM is rejected rather than silently ignored.
         assert!(executor.client_for(&spec, Some(&one)).is_err());
-        assert_eq!(executor.clients.len(), 1, "a failed client must not be cached");
+        assert_eq!(
+            executor.clients.len(),
+            1,
+            "a failed client must not be cached"
+        );
 
         assert_ne!(
             ClientKey {
@@ -1360,7 +1475,9 @@ mod tests {
         let mut sessions = SessionStore::new();
         let mut ctx = RunContext::new(&mut resolver, &mut sessions);
 
-        let material = resolve_identity(&spec, &mut ctx).unwrap().expect("identity");
+        let material = resolve_identity(&spec, &mut ctx)
+            .unwrap()
+            .expect("identity");
         assert!(String::from_utf8_lossy(&material.pem).contains("BEGIN CERTIFICATE"));
     }
 

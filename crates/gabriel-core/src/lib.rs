@@ -64,7 +64,11 @@ pub fn format_iso8601(ms: u64) -> String {
     let days = secs.div_euclid(86_400);
     let time_of_day = secs.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
-    let (hour, minute, second) = (time_of_day / 3600, (time_of_day % 3600) / 60, time_of_day % 60);
+    let (hour, minute, second) = (
+        time_of_day / 3600,
+        (time_of_day % 3600) / 60,
+        time_of_day % 60,
+    );
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }
 
@@ -143,8 +147,11 @@ pub fn parse_iso8601(value: &str) -> Option<u64> {
             Some((whole, fraction)) => {
                 let whole: i64 = whole.parse().ok()?;
                 // Fractions can be any length; take milliseconds, pad or trim.
-                let digits: String =
-                    fraction.chars().filter(|c| c.is_ascii_digit()).take(3).collect();
+                let digits: String = fraction
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .take(3)
+                    .collect();
                 let millis: i64 = format!("{digits:0<3}").parse().ok()?;
                 (whole, millis)
             }
@@ -176,9 +183,10 @@ fn split_offset(rest: &str) -> Option<(&str, i64)> {
         let (hours, minutes) = match offset.split_once(':') {
             Some((h, m)) => (h.parse::<i64>().ok()?, m.parse::<i64>().ok()?),
             // `+0200` and `+02` both occur.
-            None if offset.len() == 4 => {
-                (offset[..2].parse::<i64>().ok()?, offset[2..].parse::<i64>().ok()?)
-            }
+            None if offset.len() == 4 => (
+                offset[..2].parse::<i64>().ok()?,
+                offset[2..].parse::<i64>().ok()?,
+            ),
             None => (offset.parse::<i64>().ok()?, 0),
         };
         return Some((time, sign * (hours * 60 + minutes)));
@@ -221,13 +229,19 @@ mod tests {
 
     #[test]
     fn formats_a_known_instant() {
-        assert_eq!(format_iso8601(1_785_283_200_000), "2026-07-29T00:00:00.000Z");
+        assert_eq!(
+            format_iso8601(1_785_283_200_000),
+            "2026-07-29T00:00:00.000Z"
+        );
     }
 
     #[test]
     fn formats_the_epoch_and_a_leap_day() {
         assert_eq!(format_iso8601(0), "1970-01-01T00:00:00.000Z");
-        assert_eq!(format_iso8601(1_709_210_096_789), "2024-02-29T12:34:56.789Z");
+        assert_eq!(
+            format_iso8601(1_709_210_096_789),
+            "2024-02-29T12:34:56.789Z"
+        );
     }
 
     #[test]
@@ -270,7 +284,11 @@ mod tests {
     #[test]
     fn iso_parsing_round_trips_with_formatting() {
         for ms in [0u64, 1_000, 1_709_210_096_789, 1_785_283_200_123] {
-            assert_eq!(parse_iso8601(&format_iso8601(ms)), Some(ms), "failed at {ms}");
+            assert_eq!(
+                parse_iso8601(&format_iso8601(ms)),
+                Some(ms),
+                "failed at {ms}"
+            );
         }
     }
 
@@ -279,25 +297,34 @@ mod tests {
         let canonical = parse_iso8601("2026-07-29T12:30:45.500Z").unwrap();
         // Fractions of other lengths.
         assert_eq!(parse_iso8601("2026-07-29T12:30:45.5Z"), Some(canonical));
-        assert_eq!(parse_iso8601("2026-07-29T12:30:45.500000Z"), Some(canonical));
+        assert_eq!(
+            parse_iso8601("2026-07-29T12:30:45.500000Z"),
+            Some(canonical)
+        );
         // Lowercase separators, and a space instead of T.
         assert_eq!(parse_iso8601("2026-07-29t12:30:45.5z"), Some(canonical));
         assert_eq!(parse_iso8601("2026-07-29 12:30:45.5Z"), Some(canonical));
         // No fraction at all.
-        assert_eq!(
-            parse_iso8601("2026-07-29T12:30:45Z"),
-            Some(canonical - 500)
-        );
+        assert_eq!(parse_iso8601("2026-07-29T12:30:45Z"), Some(canonical - 500));
     }
 
     #[test]
     fn iso_parsing_applies_the_zone_offset() {
         let utc = parse_iso8601("2026-07-29T12:00:00Z").unwrap();
         // Noon in Berlin is 10:00 UTC.
-        assert_eq!(parse_iso8601("2026-07-29T12:00:00+02:00"), Some(utc - 2 * 3_600_000));
-        assert_eq!(parse_iso8601("2026-07-29T12:00:00+0200"), Some(utc - 2 * 3_600_000));
+        assert_eq!(
+            parse_iso8601("2026-07-29T12:00:00+02:00"),
+            Some(utc - 2 * 3_600_000)
+        );
+        assert_eq!(
+            parse_iso8601("2026-07-29T12:00:00+0200"),
+            Some(utc - 2 * 3_600_000)
+        );
         // And west of UTC.
-        assert_eq!(parse_iso8601("2026-07-29T12:00:00-05:00"), Some(utc + 5 * 3_600_000));
+        assert_eq!(
+            parse_iso8601("2026-07-29T12:00:00-05:00"),
+            Some(utc + 5 * 3_600_000)
+        );
         // A missing zone is treated as UTC rather than rejected.
         assert_eq!(parse_iso8601("2026-07-29T12:00:00"), Some(utc));
     }
@@ -322,7 +349,10 @@ mod tests {
     fn civil_days_round_trip() {
         for (y, m, d) in [(1970, 1, 1), (2024, 2, 29), (2026, 7, 29), (2000, 3, 1)] {
             let days = days_from_civil(y, m, d);
-            assert_eq!(date_parts((days * 86_400 * 1000) as u64, 0), (y, m as u32, d as u32));
+            assert_eq!(
+                date_parts((days * 86_400 * 1000) as u64, 0),
+                (y, m as u32, d as u32)
+            );
         }
     }
 

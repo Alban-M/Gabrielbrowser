@@ -82,7 +82,11 @@ pub struct Entry {
     pub cache: serde_json::Value,
     #[serde(default)]
     pub timings: Timings,
-    #[serde(default, rename = "serverIPAddress", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "serverIPAddress",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub server_ip_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
@@ -221,7 +225,14 @@ fn unknown_http_version() -> String {
 pub fn export(captures: &[Capture]) -> Har {
     let mut entries: Vec<Entry> = captures.iter().map(entry_from_capture).collect();
     entries.sort_by_key(|e| e.started_date_time.clone());
-    Har { log: Log { version: HAR_VERSION.to_string(), creator: Creator::default(), pages: Vec::new(), entries } }
+    Har {
+        log: Log {
+            version: HAR_VERSION.to_string(),
+            creator: Creator::default(),
+            pages: Vec::new(),
+            entries,
+        },
+    }
 }
 
 fn entry_from_capture(capture: &Capture) -> Entry {
@@ -250,7 +261,12 @@ fn entry_from_capture(capture: &Capture) -> Entry {
             }),
             // Gabriel does not record wire sizes; `-1` is the spec's "unknown".
             headers_size: -1,
-            body_size: capture.request.body.as_ref().map(|b| b.len() as i64).unwrap_or(0),
+            body_size: capture
+                .request
+                .body
+                .as_ref()
+                .map(|b| b.len() as i64)
+                .unwrap_or(0),
         },
         response: capture.response.as_ref().map(|response| Response {
             status: response.status,
@@ -262,31 +278,54 @@ fn entry_from_capture(capture: &Capture) -> Entry {
                 Some(CapturedBody::Text { text }) => Content {
                     size: text.len() as i64,
                     compression: None,
-                    mime_type: response.headers.get_first("content-type").unwrap_or("").to_string(),
+                    mime_type: response
+                        .headers
+                        .get_first("content-type")
+                        .unwrap_or("")
+                        .to_string(),
                     text: Some(text.clone()),
                     encoding: None,
                 },
                 Some(CapturedBody::Base64 { data }) => Content {
-                    size: crate::b64_decode(data).map(|b| b.len() as i64).unwrap_or(-1),
+                    size: crate::b64_decode(data)
+                        .map(|b| b.len() as i64)
+                        .unwrap_or(-1),
                     compression: None,
-                    mime_type: response.headers.get_first("content-type").unwrap_or("").to_string(),
+                    mime_type: response
+                        .headers
+                        .get_first("content-type")
+                        .unwrap_or("")
+                        .to_string(),
                     text: Some(data.clone()),
                     encoding: Some("base64".to_string()),
                 },
                 None => Content {
                     size: 0,
                     compression: None,
-                    mime_type: response.headers.get_first("content-type").unwrap_or("").to_string(),
+                    mime_type: response
+                        .headers
+                        .get_first("content-type")
+                        .unwrap_or("")
+                        .to_string(),
                     text: None,
                     encoding: None,
                 },
             },
-            redirect_url: response.headers.get_first("location").unwrap_or("").to_string(),
+            redirect_url: response
+                .headers
+                .get_first("location")
+                .unwrap_or("")
+                .to_string(),
             headers_size: -1,
             body_size: response.body.as_ref().map(|b| b.len() as i64).unwrap_or(0),
         }),
         cache: serde_json::json!({}),
-        timings: Timings { send: 0.0, wait: capture.duration_ms as f64, receive: 0.0, ..Default::default() },
+        timings: Timings {
+            send: 0.0,
+            wait: capture.duration_ms as f64,
+            receive: 0.0,
+            ..Default::default()
+        },
         server_ip_address: None,
         connection: None,
         gabriel_page: capture.page.clone(),
@@ -361,7 +400,11 @@ fn capture_from_entry(entry: &Entry, id: &str) -> Option<Capture> {
     Some(Capture {
         id: id.to_string(),
         at: crate::parse_iso8601(&entry.started_date_time).unwrap_or_else(crate::now_ms),
-        duration_ms: if entry.time.is_finite() && entry.time > 0.0 { entry.time as u64 } else { 0 },
+        duration_ms: if entry.time.is_finite() && entry.time > 0.0 {
+            entry.time as u64
+        } else {
+            0
+        },
         session: entry.gabriel_session.clone(),
         page: entry.gabriel_page.clone(),
         request: CapturedRequest {
@@ -392,7 +435,10 @@ fn body_from_content(content: &Content) -> Option<CapturedBody> {
 fn name_values(headers: &FieldMap) -> Vec<NameValue> {
     headers
         .iter_pairs()
-        .map(|(name, value)| NameValue { name: name.to_string(), value: value.to_string() })
+        .map(|(name, value)| NameValue {
+            name: name.to_string(),
+            value: value.to_string(),
+        })
         .collect()
 }
 
@@ -406,10 +452,14 @@ fn cookies_from_header(headers: &FieldMap, header: &str) -> Vec<Cookie> {
                 let (name, value) = pair.split_once('=')?;
                 let name = name.trim();
                 // Set-Cookie attributes (Path, Secure…) are not cookies.
-                const ATTRIBUTES: &[&str] =
-                    &["path", "domain", "expires", "max-age", "samesite", "secure", "httponly"];
+                const ATTRIBUTES: &[&str] = &[
+                    "path", "domain", "expires", "max-age", "samesite", "secure", "httponly",
+                ];
                 (!name.is_empty() && !ATTRIBUTES.contains(&name.to_ascii_lowercase().as_str()))
-                    .then(|| Cookie { name: name.to_string(), value: value.trim().to_string() })
+                    .then(|| Cookie {
+                        name: name.to_string(),
+                        value: value.trim().to_string(),
+                    })
             })
         })
         .collect()
@@ -425,7 +475,10 @@ fn split_query(url: &str) -> (String, Vec<NameValue>) {
         .filter(|p| !p.is_empty())
         .map(|pair| {
             let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
-            NameValue { name: name.to_string(), value: value.to_string() }
+            NameValue {
+                name: name.to_string(),
+                value: value.to_string(),
+            }
         })
         .collect();
     (base.to_string(), pairs)
@@ -463,13 +516,17 @@ mod tests {
                 url: "https://api.test/v1/orders?page=2&q=hello".into(),
                 http_version: "HTTP/2.0".into(),
                 headers: request_headers,
-                body: Some(CapturedBody::Text { text: r#"{"item":"widget"}"#.into() }),
+                body: Some(CapturedBody::Text {
+                    text: r#"{"item":"widget"}"#.into(),
+                }),
             },
             response: Some(CapturedResponse {
                 status: 201,
                 status_text: "Created".into(),
                 headers: response_headers,
-                body: Some(CapturedBody::Text { text: r#"{"id":7}"#.into() }),
+                body: Some(CapturedBody::Text {
+                    text: r#"{"id":7}"#.into(),
+                }),
             }),
         }
     }
@@ -498,9 +555,15 @@ mod tests {
             restored.request.body.as_ref().map(|b| b.bytes()),
             original.request.body.as_ref().map(|b| b.bytes())
         );
-        let (a, b) = (restored.response.as_ref().unwrap(), original.response.as_ref().unwrap());
+        let (a, b) = (
+            restored.response.as_ref().unwrap(),
+            original.response.as_ref().unwrap(),
+        );
         assert_eq!(a.status, b.status);
-        assert_eq!(a.body.as_ref().map(|x| x.bytes()), b.body.as_ref().map(|x| x.bytes()));
+        assert_eq!(
+            a.body.as_ref().map(|x| x.bytes()),
+            b.body.as_ref().map(|x| x.bytes())
+        );
     }
 
     #[test]
@@ -534,7 +597,12 @@ mod tests {
         let har = export(&[capture("cap-1")]);
         let entry = &har.log.entries[0];
 
-        let names: Vec<&str> = entry.request.cookies.iter().map(|c| c.name.as_str()).collect();
+        let names: Vec<&str> = entry
+            .request
+            .cookies
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
         assert_eq!(names, vec!["sid", "theme"]);
 
         let response_cookies = &entry.response.as_ref().unwrap().cookies;
@@ -550,10 +618,29 @@ mod tests {
         original.response.as_mut().unwrap().body = CapturedBody::from_bytes(&bytes);
 
         let har = export(std::slice::from_ref(&original));
-        assert_eq!(har.log.entries[0].response.as_ref().unwrap().content.encoding.as_deref(), Some("base64"));
+        assert_eq!(
+            har.log.entries[0]
+                .response
+                .as_ref()
+                .unwrap()
+                .content
+                .encoding
+                .as_deref(),
+            Some("base64")
+        );
 
         let (back, _) = import(&har, "x-");
-        assert_eq!(back[0].response.as_ref().unwrap().body.as_ref().unwrap().bytes(), bytes);
+        assert_eq!(
+            back[0]
+                .response
+                .as_ref()
+                .unwrap()
+                .body
+                .as_ref()
+                .unwrap()
+                .bytes(),
+            bytes
+        );
     }
 
     /// The shape Chrome DevTools actually produces, including the fields it
@@ -634,9 +721,19 @@ mod tests {
         assert_eq!(capture.at, 1_785_319_201_250);
         // Pseudo-headers are dropped; real ones survive.
         assert!(!capture.request.headers.contains_key(":method"));
-        assert_eq!(capture.request.headers.get_first("authorization"), Some("Bearer token-123"));
         assert_eq!(
-            capture.response.as_ref().unwrap().body.as_ref().unwrap().as_text(),
+            capture.request.headers.get_first("authorization"),
+            Some("Bearer token-123")
+        );
+        assert_eq!(
+            capture
+                .response
+                .as_ref()
+                .unwrap()
+                .body
+                .as_ref()
+                .unwrap()
+                .as_text(),
             Some(r#"{"id":"u_1","name":"Ada"}"#)
         );
     }
@@ -650,7 +747,10 @@ mod tests {
         let (captures, skipped) = import(&har, "m-");
 
         assert_eq!(skipped, 0);
-        assert_eq!(captures[0].request.method, "GET", "method should be normalised");
+        assert_eq!(
+            captures[0].request.method, "GET",
+            "method should be normalised"
+        );
         assert!(captures[0].response.is_none());
         // An unparseable timestamp falls back to now rather than to 1970.
         assert!(captures[0].at > 1_700_000_000_000);

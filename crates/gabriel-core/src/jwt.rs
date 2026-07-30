@@ -136,7 +136,12 @@ impl Jwt {
             }
         }
 
-        Ok(Jwt { header, payload, signature, warnings })
+        Ok(Jwt {
+            header,
+            payload,
+            signature,
+            warnings,
+        })
     }
 
     pub fn algorithm(&self) -> Option<&str> {
@@ -159,12 +164,22 @@ impl Jwt {
     }
 
     pub fn is_expired(&self, now_ms: u64) -> bool {
-        self.expires_in_ms(now_ms).is_some_and(|remaining| remaining <= 0)
+        self.expires_in_ms(now_ms)
+            .is_some_and(|remaining| remaining <= 0)
     }
 
     /// Claims a reader usually wants first, in a stable order.
     pub fn notable_claims(&self) -> Vec<(&str, String)> {
-        const ORDER: &[&str] = &["iss", "sub", "aud", "azp", "scope", "scp", "client_id", "jti"];
+        const ORDER: &[&str] = &[
+            "iss",
+            "sub",
+            "aud",
+            "azp",
+            "scope",
+            "scp",
+            "client_id",
+            "jti",
+        ];
         let mut out = Vec::new();
         for name in ORDER {
             if let Some(value) = self.payload.get(*name) {
@@ -181,8 +196,7 @@ fn decode_segment(segment: &str, what: &str) -> Result<Value> {
     let bytes = engine
         .decode(segment.trim_end_matches('='))
         .map_err(|e| Error::Invalid(format!("{what} is not valid base64url: {e}")))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|e| Error::Invalid(format!("{what} is not JSON: {e}")))
+    serde_json::from_slice(&bytes).map_err(|e| Error::Invalid(format!("{what} is not JSON: {e}")))
 }
 
 fn render(value: &Value) -> String {
@@ -331,7 +345,12 @@ mod tests {
             serde_json::json!({ "sub": "service-account" }),
             "sig",
         );
-        assert!(Jwt::decode_at(&forever, NOW).unwrap().warnings.contains(&Warning::NoExpiry));
+        assert!(
+            Jwt::decode_at(&forever, NOW)
+                .unwrap()
+                .warnings
+                .contains(&Warning::NoExpiry)
+        );
     }
 
     #[test]
@@ -341,7 +360,12 @@ mod tests {
             serde_json::json!({ "nbf": NOW / 1000 + 600, "exp": NOW / 1000 + 3600 }),
             "sig",
         );
-        assert!(Jwt::decode_at(&future, NOW).unwrap().warnings.contains(&Warning::NotYetValid));
+        assert!(
+            Jwt::decode_at(&future, NOW)
+                .unwrap()
+                .warnings
+                .contains(&Warning::NotYetValid)
+        );
     }
 
     #[test]
@@ -401,7 +425,10 @@ mod tests {
 
     #[test]
     fn finds_a_token_inside_a_json_body() {
-        let body = format!("{{\"access_token\":\"{}\",\"type\":\"Bearer\"}}", valid_token());
+        let body = format!(
+            "{{\"access_token\":\"{}\",\"type\":\"Bearer\"}}",
+            valid_token()
+        );
         assert_eq!(find_in(&body), Some(valid_token().as_str()));
     }
 

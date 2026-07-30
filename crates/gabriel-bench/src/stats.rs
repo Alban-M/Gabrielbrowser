@@ -13,7 +13,10 @@ pub struct Samples {
 
 impl Samples {
     pub fn new(label: impl Into<String>) -> Self {
-        Samples { label: label.into(), micros: Vec::new() }
+        Samples {
+            label: label.into(),
+            micros: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, elapsed: Duration) {

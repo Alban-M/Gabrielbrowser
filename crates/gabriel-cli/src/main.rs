@@ -404,8 +404,14 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
                 eprintln!("{} {warning}", style.yellow("warning:"));
             }
             println!();
-            println!("  {}", style.dim("gabriel run example        send the starter request"));
-            println!("  {}", style.dim("gabriel capture start      record live traffic"));
+            println!(
+                "  {}",
+                style.dim("gabriel run example        send the starter request")
+            );
+            println!(
+                "  {}",
+                style.dim("gabriel capture start      record live traffic")
+            );
             Ok(Outcome::Success)
         }
 
@@ -431,7 +437,10 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
                 println!(
                     "{:<28} {}",
                     style.red(&problem.id),
-                    style.dim(&format!("unreadable: {}", problem.message.lines().next().unwrap_or("")))
+                    style.dim(&format!(
+                        "unreadable: {}",
+                        problem.message.lines().next().unwrap_or("")
+                    ))
                 );
             }
             if !collection.problems().is_empty() {
@@ -454,9 +463,12 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
 
         Command::Run(args) => run_requests(args, &start_dir, style),
 
-        Command::Capture(CaptureCommand::Start { port, session, exclude, only }) => {
-            start_capture(&start_dir, port, session, exclude, only, style)
-        }
+        Command::Capture(CaptureCommand::Start {
+            port,
+            session,
+            exclude,
+            only,
+        }) => start_capture(&start_dir, port, session, exclude, only, style),
 
         Command::Capture(CaptureCommand::Ls {
             host,
@@ -552,10 +564,17 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             let collection = open_collection(&start_dir)?;
             let sessions = SessionStore::load(collection.sessions_path())?;
             if sessions.names().is_empty() {
-                println!("{}", style.dim("no sessions yet — capture some traffic first"));
+                println!(
+                    "{}",
+                    style.dim("no sessions yet — capture some traffic first")
+                );
             }
             for name in sessions.names() {
-                println!("{:<20} {} cookies", style.bold(name), sessions.cookie_count(name));
+                println!(
+                    "{:<20} {} cookies",
+                    style.bold(name),
+                    sessions.cookie_count(name)
+                );
             }
             Ok(Outcome::Success)
         }
@@ -569,9 +588,13 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             Ok(Outcome::Success)
         }
 
-        Command::Auth { request, env, port, no_browser, timeout } => {
-            auth_command(request, env, port, no_browser, timeout, &start_dir, style)
-        }
+        Command::Auth {
+            request,
+            env,
+            port,
+            no_browser,
+            timeout,
+        } => auth_command(request, env, port, no_browser, timeout, &start_dir, style),
 
         Command::Ws {
             target,
@@ -601,10 +624,28 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
 
         Command::Har(command) => har_command(command, &start_dir, style),
 
-        Command::Jwt { token, capture, json } => jwt_command(token, capture, json, &start_dir, style),
+        Command::Jwt {
+            token,
+            capture,
+            json,
+        } => jwt_command(token, capture, json, &start_dir, style),
 
-        Command::Curl { request, env, vars, session, show_secrets, one_line } => curl_command(
-            CurlArgs { request, env, vars, session, show_secrets, one_line },
+        Command::Curl {
+            request,
+            env,
+            vars,
+            session,
+            show_secrets,
+            one_line,
+        } => curl_command(
+            CurlArgs {
+                request,
+                env,
+                vars,
+                session,
+                show_secrets,
+                one_line,
+            },
             &start_dir,
             style,
         ),
@@ -692,7 +733,10 @@ fn auth_command(
         (None, [only]) => Some(only.clone()),
         (None, _) => None,
     };
-    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+    let environment = env_name
+        .as_deref()
+        .map(|n| collection.environment(n))
+        .transpose()?;
 
     // Resolve templates in the config before anything is sent.
     let secrets = LazySecrets::new(collection.vault_path(), KeySource::from_environment());
@@ -703,14 +747,31 @@ fn auth_command(
     let mut resolved = config.clone();
     resolved.token_url = resolver.resolve(&config.token_url)?;
     resolved.client_id = resolver.resolve(&config.client_id)?;
-    resolved.authorize_url =
-        config.authorize_url.as_ref().map(|u| resolver.resolve(u)).transpose()?;
-    resolved.client_secret =
-        config.client_secret.as_ref().map(|s| resolver.resolve(s)).transpose()?;
-    resolved.scope = config.scope.as_ref().map(|s| resolver.resolve(s)).transpose()?;
-    resolved.audience = config.audience.as_ref().map(|a| resolver.resolve(a)).transpose()?;
-    resolved.redirect_uri =
-        config.redirect_uri.as_ref().map(|r| resolver.resolve(r)).transpose()?;
+    resolved.authorize_url = config
+        .authorize_url
+        .as_ref()
+        .map(|u| resolver.resolve(u))
+        .transpose()?;
+    resolved.client_secret = config
+        .client_secret
+        .as_ref()
+        .map(|s| resolver.resolve(s))
+        .transpose()?;
+    resolved.scope = config
+        .scope
+        .as_ref()
+        .map(|s| resolver.resolve(s))
+        .transpose()?;
+    resolved.audience = config
+        .audience
+        .as_ref()
+        .map(|a| resolver.resolve(a))
+        .transpose()?;
+    resolved.redirect_uri = config
+        .redirect_uri
+        .as_ref()
+        .map(|r| resolver.resolve(r))
+        .transpose()?;
 
     let options = FlowOptions {
         port,
@@ -763,7 +824,12 @@ fn auth_command(
 
     println!();
     println!("  {}", style.dim("use it with:"));
-    println!("  {}", style.dim(&format!("[auth]\n  type = \"bearer\"\n  token = \"{{{{secret:{access_key}}}}}\"")));
+    println!(
+        "  {}",
+        style.dim(&format!(
+            "[auth]\n  type = \"bearer\"\n  token = \"{{{{secret:{access_key}}}}}\""
+        ))
+    );
     Ok(Outcome::Success)
 }
 
@@ -785,7 +851,10 @@ fn ws_command(args: WsArgs, start_dir: &Path, style: &Style) -> Result<Outcome> 
         (None, [only]) => Some(only.clone()),
         (None, _) => None,
     };
-    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+    let environment = env_name
+        .as_deref()
+        .map(|n| collection.environment(n))
+        .transpose()?;
 
     let secrets = LazySecrets::new(collection.vault_path(), KeySource::from_environment());
     let mut resolver = Resolver::new()
@@ -843,7 +912,11 @@ fn ws_command(args: WsArgs, start_dir: &Path, style: &Style) -> Result<Outcome> 
     println!(
         "{} {} · {} sent, {} received in {}",
         style.status(outcome.status),
-        style.dim(if outcome.status == 101 { "Switching Protocols" } else { "" }),
+        style.dim(if outcome.status == 101 {
+            "Switching Protocols"
+        } else {
+            ""
+        }),
         sent,
         outcome.received().count(),
         output::format_duration(outcome.duration_ms)
@@ -867,7 +940,15 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
     let store = CaptureStore::new(collection.captures_path());
 
     match command {
-        HarCommand::Export { out, host, url, method, status, session, limit } => {
+        HarCommand::Export {
+            out,
+            host,
+            url,
+            method,
+            status,
+            session,
+            limit,
+        } => {
             let filter = CaptureFilter {
                 host,
                 url,
@@ -938,8 +1019,14 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
             }
             if !captures.is_empty() {
                 println!();
-                println!("  {}", style.dim("gabriel capture ls        see what arrived"));
-                println!("  {}", style.dim("gabriel promote <id>      turn one into a request"));
+                println!(
+                    "  {}",
+                    style.dim("gabriel capture ls        see what arrived")
+                );
+                println!(
+                    "  {}",
+                    style.dim("gabriel promote <id>      turn one into a request")
+                );
             }
             Ok(Outcome::Success)
         }
@@ -959,7 +1046,9 @@ fn jwt_command(
     let raw = match (token.as_deref(), capture.as_deref()) {
         (Some("-"), _) => {
             let mut input = String::new();
-            std::io::stdin().read_to_string(&mut input).context("reading the token from stdin")?;
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .context("reading the token from stdin")?;
             input
         }
         (Some(token), _) => token.to_string(),
@@ -1009,7 +1098,9 @@ fn jwt_command(
         "{} {}{}",
         style.bold("algorithm"),
         jwt.algorithm().unwrap_or("<none declared>"),
-        jwt.key_id().map(|k| format!("  kid {k}")).unwrap_or_default()
+        jwt.key_id()
+            .map(|k| format!("  kid {k}"))
+            .unwrap_or_default()
     );
 
     for (name, value) in jwt.notable_claims() {
@@ -1039,7 +1130,11 @@ fn jwt_command(
     if !jwt.warnings.is_empty() {
         println!();
         for warning in &jwt.warnings {
-            let marker = if warning.is_serious() { style.red("!") } else { style.yellow("·") };
+            let marker = if warning.is_serious() {
+                style.red("!")
+            } else {
+                style.yellow("·")
+            };
             println!("{marker} {}", warning.message());
         }
     }
@@ -1047,7 +1142,9 @@ fn jwt_command(
     println!();
     println!(
         "{}",
-        style.dim("signature not verified — that needs the issuer's key, which Gabriel does not have")
+        style.dim(
+            "signature not verified — that needs the issuer's key, which Gabriel does not have"
+        )
     );
 
     // A serious finding is worth a non-zero exit so a script can gate on it.
@@ -1067,7 +1164,10 @@ fn curl_command(args: CurlArgs, start_dir: &Path, style: &Style) -> Result<Outco
         (None, [only]) => Some(only.clone()),
         (None, _) => None,
     };
-    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+    let environment = env_name
+        .as_deref()
+        .map(|n| collection.environment(n))
+        .transpose()?;
 
     let secrets = LazySecrets::new(collection.vault_path(), KeySource::from_environment());
     let mut resolver = Resolver::new()
@@ -1130,7 +1230,10 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
         (None, [only]) => Some(only.clone()),
         (None, _) => None,
     };
-    let environment = env_name.as_deref().map(|n| collection.environment(n)).transpose()?;
+    let environment = env_name
+        .as_deref()
+        .map(|n| collection.environment(n))
+        .transpose()?;
 
     let targets: Vec<gabriel_collection::RequestEntry> = if args.all {
         collection.requests().to_vec()
@@ -1196,7 +1299,9 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                     let name = event.name.as_deref().unwrap_or("message");
                     // Pretty-print JSON payloads; most streaming APIs send them.
                     let data = match event.json() {
-                        Some(json) => serde_json::to_string(&json).unwrap_or_else(|_| event.data.clone()),
+                        Some(json) => {
+                            serde_json::to_string(&json).unwrap_or_else(|_| event.data.clone())
+                        }
                         None => event.data.clone(),
                     };
                     println!(
@@ -1226,7 +1331,10 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
             ),
             gabriel_engine::StreamEnd::TimedOut => println!(
                 "{}",
-                style.dim(&format!("stopped after --stream-timeout {}s", args.stream_timeout))
+                style.dim(&format!(
+                    "stopped after --stream-timeout {}s",
+                    args.stream_timeout
+                ))
             ),
             gabriel_engine::StreamEnd::NotAStream => {
                 let content_type = outcome.headers.get_first("content-type").unwrap_or("none");
@@ -1362,12 +1470,13 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
 
     if errors > 0 {
         // Report every failure that was skipped over, then fail the run.
-        bail!(
-            "{errors} of {} request(s) could not be sent",
-            targets.len()
-        );
+        bail!("{errors} of {} request(s) could not be sent", targets.len());
     }
-    Ok(if all_passed { Outcome::Success } else { Outcome::AssertionsFailed })
+    Ok(if all_passed {
+        Outcome::Success
+    } else {
+        Outcome::AssertionsFailed
+    })
 }
 
 fn start_capture(
@@ -1400,7 +1509,11 @@ fn start_capture(
 
     runtime.block_on(async move {
         let running = proxy.start().await?;
-        println!("{} http://{}", style.green("proxy listening on"), running.addr);
+        println!(
+            "{} http://{}",
+            style.green("proxy listening on"),
+            running.addr
+        );
         if let Some(warning) = gabriel_core::permission_warning() {
             eprintln!("{} {warning}", style.yellow("warning:"));
         }
@@ -1409,11 +1522,18 @@ fn start_capture(
             println!("  {} {}", style.dim("intercepting only:"), only.join(", "));
         }
         if !exclude.is_empty() {
-            println!("  {} {}", style.dim("tunnelling untouched:"), exclude.join(", "));
+            println!(
+                "  {} {}",
+                style.dim("tunnelling untouched:"),
+                exclude.join(", ")
+            );
         }
         println!("  {} {}", style.dim("CA certificate:"), ca_path.display());
         println!();
-        println!("{}", style.dim("HTTPS needs the CA trusted once — see `gabriel ca`."));
+        println!(
+            "{}",
+            style.dim("HTTPS needs the CA trusted once — see `gabriel ca`.")
+        );
         println!("{}", style.dim("Ctrl-C to stop."));
 
         tokio::signal::ctrl_c().await.ok();
@@ -1457,7 +1577,12 @@ fn promote(args: PromoteArgs, start_dir: &Path, style: &Style) -> Result<Outcome
             .environment_names()
             .into_iter()
             .filter_map(|name| {
-                let existing = collection.environment(&name).ok()?.variables().get("base_url")?.clone();
+                let existing = collection
+                    .environment(&name)
+                    .ok()?
+                    .variables()
+                    .get("base_url")?
+                    .clone();
                 (existing != *origin).then_some((name, existing))
             })
             .collect();
@@ -1524,7 +1649,10 @@ fn promote(args: PromoteArgs, start_dir: &Path, style: &Style) -> Result<Outcome
         }
     }
 
-    if matches!(promotion.spec.auth, Some(gabriel_core::model::Auth::Session { .. })) {
+    if matches!(
+        promotion.spec.auth,
+        Some(gabriel_core::model::Auth::Session { .. })
+    ) {
         println!(
             "{} replays will use the `{}` session's cookies",
             style.dim("note:"),

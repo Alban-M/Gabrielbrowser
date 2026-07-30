@@ -118,7 +118,9 @@ pub enum SocketEnd {
 
 impl WebSocketOutcome {
     pub fn received(&self) -> impl Iterator<Item = &Frame> {
-        self.frames.iter().filter(|f| f.direction == Direction::Received)
+        self.frames
+            .iter()
+            .filter(|f| f.direction == Direction::Received)
     }
 }
 
@@ -132,10 +134,13 @@ pub async fn run(
     let resolved = ctx.resolver.resolve(&spec.url)?;
     let url = to_websocket_url(&resolved)?;
 
-    let mut request = url.as_str().into_client_request().map_err(|e| EngineError::BadUrl {
-        url: url.clone(),
-        message: e.to_string(),
-    })?;
+    let mut request = url
+        .as_str()
+        .into_client_request()
+        .map_err(|e| EngineError::BadUrl {
+            url: url.clone(),
+            message: e.to_string(),
+        })?;
 
     // Headers, auth and session cookies work exactly as they do for HTTP.
     let headers = ctx.resolver.resolve_map(&spec.headers)?;
@@ -175,8 +180,10 @@ pub async fn run(
     }
 
     if !plan.subprotocols.is_empty() {
-        header_list
-            .push(("Sec-WebSocket-Protocol".to_string(), plan.subprotocols.join(", ")));
+        header_list.push((
+            "Sec-WebSocket-Protocol".to_string(),
+            plan.subprotocols.join(", "),
+        ));
     }
 
     for (name, value) in &header_list {
@@ -265,7 +272,11 @@ pub async fn run(
                 // server pinging every second should not end the session.
                 let counts = !matches!(payload, Payload::Ping(_) | Payload::Pong(_));
                 record(
-                    Frame { direction: Direction::Received, payload, at_ms },
+                    Frame {
+                        direction: Direction::Received,
+                        payload,
+                        at_ms,
+                    },
                     &mut frames,
                     &mut on_frame,
                 );
@@ -324,10 +335,12 @@ fn payload_of(message: Message) -> Option<Payload> {
 /// pedantry.
 pub fn to_websocket_url(url: &str) -> Result<String> {
     let trimmed = url.trim();
-    let (scheme, rest) = trimmed.split_once("://").ok_or_else(|| EngineError::BadUrl {
-        url: trimmed.to_string(),
-        message: "expected a ws://, wss://, http:// or https:// URL".to_string(),
-    })?;
+    let (scheme, rest) = trimmed
+        .split_once("://")
+        .ok_or_else(|| EngineError::BadUrl {
+            url: trimmed.to_string(),
+            message: "expected a ws://, wss://, http:// or https:// URL".to_string(),
+        })?;
     let scheme = match scheme.to_ascii_lowercase().as_str() {
         "ws" | "http" => "ws",
         "wss" | "https" => "wss",
@@ -353,16 +366,31 @@ mod tests {
 
     #[test]
     fn websocket_schemes_are_accepted_as_they_are() {
-        assert_eq!(to_websocket_url("ws://api.test/socket").unwrap(), "ws://api.test/socket");
-        assert_eq!(to_websocket_url("wss://api.test/socket").unwrap(), "wss://api.test/socket");
+        assert_eq!(
+            to_websocket_url("ws://api.test/socket").unwrap(),
+            "ws://api.test/socket"
+        );
+        assert_eq!(
+            to_websocket_url("wss://api.test/socket").unwrap(),
+            "wss://api.test/socket"
+        );
     }
 
     #[test]
     fn http_urls_are_upgraded_because_that_is_what_docs_print() {
-        assert_eq!(to_websocket_url("http://api.test/ws").unwrap(), "ws://api.test/ws");
-        assert_eq!(to_websocket_url("https://api.test/ws").unwrap(), "wss://api.test/ws");
+        assert_eq!(
+            to_websocket_url("http://api.test/ws").unwrap(),
+            "ws://api.test/ws"
+        );
+        assert_eq!(
+            to_websocket_url("https://api.test/ws").unwrap(),
+            "wss://api.test/ws"
+        );
         // Including case variations and surrounding whitespace.
-        assert_eq!(to_websocket_url("  HTTPS://api.test/ws  ").unwrap(), "wss://api.test/ws");
+        assert_eq!(
+            to_websocket_url("  HTTPS://api.test/ws  ").unwrap(),
+            "wss://api.test/ws"
+        );
     }
 
     #[test]
@@ -379,20 +407,46 @@ mod tests {
             let error = to_websocket_url(bad).unwrap_err().to_string();
             assert!(!error.is_empty(), "no explanation for {bad:?}");
         }
-        assert!(to_websocket_url("ftp://x/").unwrap_err().to_string().contains("not a websocket"));
+        assert!(
+            to_websocket_url("ftp://x/")
+                .unwrap_err()
+                .to_string()
+                .contains("not a websocket")
+        );
     }
 
     #[test]
     fn payload_summaries_stay_on_one_line() {
         assert_eq!(Payload::Text("hello".into()).summary(), "hello");
-        assert_eq!(Payload::Binary(vec![0; 2048]).summary(), "<2.0 KB of binary>");
+        assert_eq!(
+            Payload::Binary(vec![0; 2048]).summary(),
+            "<2.0 KB of binary>"
+        );
         assert_eq!(Payload::Ping(vec![]).summary(), "<ping>");
         assert_eq!(
-            Payload::Close { code: Some(1000), reason: "bye".into() }.summary(),
+            Payload::Close {
+                code: Some(1000),
+                reason: "bye".into()
+            }
+            .summary(),
             "<close 1000: bye>"
         );
-        assert_eq!(Payload::Close { code: Some(1001), reason: String::new() }.summary(), "<close 1001>");
-        assert_eq!(Payload::Close { code: None, reason: String::new() }.summary(), "<close>");
+        assert_eq!(
+            Payload::Close {
+                code: Some(1001),
+                reason: String::new()
+            }
+            .summary(),
+            "<close 1001>"
+        );
+        assert_eq!(
+            Payload::Close {
+                code: None,
+                reason: String::new()
+            }
+            .summary(),
+            "<close>"
+        );
     }
 
     #[test]

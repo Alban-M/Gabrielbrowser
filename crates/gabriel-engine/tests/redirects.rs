@@ -32,8 +32,10 @@ async fn serve(routes: Vec<Route>) -> (SocketAddr, tokio::sync::mpsc::UnboundedR
             let Ok((mut stream, _)) = listener.accept().await else {
                 continue;
             };
-            let routes: Vec<(&str, String)> =
-                routes.iter().map(|r| (r.path, r.response.clone())).collect();
+            let routes: Vec<(&str, String)> = routes
+                .iter()
+                .map(|r| (r.path, r.response.clone()))
+                .collect();
             let tx = tx.clone();
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 8192];
@@ -87,9 +89,11 @@ fn redirect_response(status: &str, location: &str, set_cookie: Option<&str>) -> 
 /// Header names on the wire are lowercase, so assertions compare
 /// case-insensitively rather than guessing at the client's capitalisation.
 fn has_header(request: &str, name: &str, value: &str) -> bool {
-    request
-        .to_ascii_lowercase()
-        .contains(&format!("{}: {}", name.to_ascii_lowercase(), value.to_ascii_lowercase()))
+    request.to_ascii_lowercase().contains(&format!(
+        "{}: {}",
+        name.to_ascii_lowercase(),
+        value.to_ascii_lowercase()
+    ))
 }
 
 fn has_header_name(request: &str, name: &str) -> bool {
@@ -114,7 +118,10 @@ async fn a_cookie_set_on_a_redirect_reaches_the_redirect_target() {
             path: "/login",
             response: redirect_response("302 Found", "/home", Some("sid=from-redirect; Path=/")),
         },
-        Route { path: "/home", response: body_response(r#"{"ok":true}"#) },
+        Route {
+            path: "/home",
+            response: body_response(r#"{"ok":true}"#),
+        },
     ])
     .await;
 
@@ -125,13 +132,19 @@ async fn a_cookie_set_on_a_redirect_reaches_the_redirect_target() {
     )
     .await;
 
-    assert_eq!(outcome.response.status, 200, "should have followed to /home");
+    assert_eq!(
+        outcome.response.status, 200,
+        "should have followed to /home"
+    );
     assert_eq!(outcome.redirects.len(), 1);
     assert_eq!(outcome.redirects[0].status, 302);
 
     let first = requests.recv().await.expect("login request");
     let second = requests.recv().await.expect("home request");
-    assert!(!has_header_name(&first, "cookie"), "no cookie exists yet on the first hop");
+    assert!(
+        !has_header_name(&first, "cookie"),
+        "no cookie exists yet on the first hop"
+    );
     assert!(
         has_header(&second, "cookie", "sid=from-redirect"),
         "the cookie set on the 302 never reached /home:\n{second}"
@@ -145,16 +158,25 @@ async fn a_cookie_set_on_a_redirect_is_recorded_in_the_session() {
             path: "/login",
             response: redirect_response("302 Found", "/home", Some("sid=persisted; Path=/")),
         },
-        Route { path: "/home", response: body_response(r#"{"ok":true}"#) },
+        Route {
+            path: "/home",
+            response: body_response(r#"{"ok":true}"#),
+        },
     ])
     .await;
 
     let mut sessions = SessionStore::new();
-    run(&RequestSpec::new("GET", format!("http://{addr}/login")), &mut sessions).await;
+    run(
+        &RequestSpec::new("GET", format!("http://{addr}/login")),
+        &mut sessions,
+    )
+    .await;
 
     let host = "127.0.0.1".to_string();
     assert_eq!(
-        sessions.cookie_header("default", &host, "/", false).as_deref(),
+        sessions
+            .cookie_header("default", &host, "/", false)
+            .as_deref(),
         Some("sid=persisted"),
         "the session store learned nothing from the redirect"
     );
@@ -163,8 +185,11 @@ async fn a_cookie_set_on_a_redirect_is_recorded_in_the_session() {
 #[tokio::test]
 async fn credentials_do_not_follow_a_redirect_to_another_origin() {
     // The second server stands in for wherever an open redirect might point.
-    let (elsewhere, mut elsewhere_requests) =
-        serve(vec![Route { path: "/taken", response: body_response(r#"{"ok":true}"#) }]).await;
+    let (elsewhere, mut elsewhere_requests) = serve(vec![Route {
+        path: "/taken",
+        response: body_response(r#"{"ok":true}"#),
+    }])
+    .await;
     let (addr, _requests) = serve(vec![Route {
         path: "/start",
         response: redirect_response(
@@ -176,14 +201,19 @@ async fn credentials_do_not_follow_a_redirect_to_another_origin() {
     .await;
 
     let mut spec = RequestSpec::new("GET", format!("http://127.0.0.1:{}/start", addr.port()));
-    spec.auth = Some(Auth::Bearer { token: "sk-live-should-not-travel".into() });
+    spec.auth = Some(Auth::Bearer {
+        token: "sk-live-should-not-travel".into(),
+    });
     spec.headers.set("X-Trace", "kept");
 
     let mut sessions = SessionStore::new();
     let outcome = run(&spec, &mut sessions).await;
     assert_eq!(outcome.response.status, 200);
 
-    let received = elsewhere_requests.recv().await.expect("request to the other origin");
+    let received = elsewhere_requests
+        .recv()
+        .await
+        .expect("request to the other origin");
     assert!(
         !received.contains("sk-live-should-not-travel"),
         "the bearer token leaked across origins:\n{received}"
@@ -197,13 +227,21 @@ async fn credentials_do_not_follow_a_redirect_to_another_origin() {
 #[tokio::test]
 async fn a_303_turns_a_post_into_a_get_and_drops_the_body() {
     let (addr, mut requests) = serve(vec![
-        Route { path: "/submit", response: redirect_response("303 See Other", "/done", None) },
-        Route { path: "/done", response: body_response(r#"{"ok":true}"#) },
+        Route {
+            path: "/submit",
+            response: redirect_response("303 See Other", "/done", None),
+        },
+        Route {
+            path: "/done",
+            response: body_response(r#"{"ok":true}"#),
+        },
     ])
     .await;
 
     let mut spec = RequestSpec::new("POST", format!("http://{addr}/submit"));
-    spec.body = Some(Body::Json { content: r#"{"payload":"original"}"#.into() });
+    spec.body = Some(Body::Json {
+        content: r#"{"payload":"original"}"#.into(),
+    });
 
     let mut sessions = SessionStore::new();
     let outcome = run(&spec, &mut sessions).await;
@@ -211,8 +249,14 @@ async fn a_303_turns_a_post_into_a_get_and_drops_the_body() {
 
     let _first = requests.recv().await.expect("submit");
     let second = requests.recv().await.expect("done");
-    assert!(second.starts_with("GET /done"), "303 must become a GET:\n{second}");
-    assert!(!second.contains("original"), "the body should not be resent:\n{second}");
+    assert!(
+        second.starts_with("GET /done"),
+        "303 must become a GET:\n{second}"
+    );
+    assert!(
+        !second.contains("original"),
+        "the body should not be resent:\n{second}"
+    );
     assert!(
         !has_header_name(&second, "content-type"),
         "a GET with no body should not claim a content type:\n{second}"
@@ -226,20 +270,31 @@ async fn a_307_preserves_the_method_and_the_body() {
             path: "/submit",
             response: redirect_response("307 Temporary Redirect", "/done", None),
         },
-        Route { path: "/done", response: body_response(r#"{"ok":true}"#) },
+        Route {
+            path: "/done",
+            response: body_response(r#"{"ok":true}"#),
+        },
     ])
     .await;
 
     let mut spec = RequestSpec::new("POST", format!("http://{addr}/submit"));
-    spec.body = Some(Body::Json { content: r#"{"payload":"original"}"#.into() });
+    spec.body = Some(Body::Json {
+        content: r#"{"payload":"original"}"#.into(),
+    });
 
     let mut sessions = SessionStore::new();
     run(&spec, &mut sessions).await;
 
     let _first = requests.recv().await.expect("submit");
     let second = requests.recv().await.expect("done");
-    assert!(second.starts_with("POST /done"), "307 must keep the method:\n{second}");
-    assert!(second.contains("original"), "307 must resend the body:\n{second}");
+    assert!(
+        second.starts_with("POST /done"),
+        "307 must keep the method:\n{second}"
+    );
+    assert!(
+        second.contains("original"),
+        "307 must resend the body:\n{second}"
+    );
 }
 
 #[tokio::test]
@@ -255,7 +310,10 @@ async fn redirects_can_be_switched_off() {
 
     let mut sessions = SessionStore::new();
     let outcome = run(&spec, &mut sessions).await;
-    assert_eq!(outcome.response.status, 302, "the 302 itself should be returned");
+    assert_eq!(
+        outcome.response.status, 302,
+        "the 302 itself should be returned"
+    );
     assert!(outcome.redirects.is_empty());
 }
 
@@ -273,7 +331,10 @@ async fn a_redirect_loop_is_bounded() {
     let mut sessions = SessionStore::new();
     let outcome = run(&spec, &mut sessions).await;
     assert_eq!(outcome.redirects.len(), 3, "should stop at the limit");
-    assert_eq!(outcome.response.status, 302, "and return the last redirect itself");
+    assert_eq!(
+        outcome.response.status, 302,
+        "and return the last redirect itself"
+    );
 }
 
 #[tokio::test]
@@ -283,7 +344,10 @@ async fn a_relative_location_resolves_against_the_current_url() {
             path: "/a/b/start",
             response: redirect_response("302 Found", "../target", None),
         },
-        Route { path: "/a/target", response: body_response(r#"{"ok":true}"#) },
+        Route {
+            path: "/a/target",
+            response: body_response(r#"{"ok":true}"#),
+        },
     ])
     .await;
 
@@ -294,7 +358,10 @@ async fn a_relative_location_resolves_against_the_current_url() {
     )
     .await;
 
-    assert_eq!(outcome.response.status, 200, "relative Location was not resolved");
+    assert_eq!(
+        outcome.response.status, 200,
+        "relative Location was not resolved"
+    );
     let _first = requests.recv().await.expect("start");
     let second = requests.recv().await.expect("target");
     assert!(second.starts_with("GET /a/target"), "{second}");
@@ -303,8 +370,14 @@ async fn a_relative_location_resolves_against_the_current_url() {
 #[tokio::test]
 async fn an_inherited_session_cookie_is_sent_on_every_hop() {
     let (addr, mut requests) = serve(vec![
-        Route { path: "/one", response: redirect_response("302 Found", "/two", None) },
-        Route { path: "/two", response: body_response(r#"{"ok":true}"#) },
+        Route {
+            path: "/one",
+            response: redirect_response("302 Found", "/two", None),
+        },
+        Route {
+            path: "/two",
+            response: body_response(r#"{"ok":true}"#),
+        },
     ])
     .await;
 
@@ -312,7 +385,9 @@ async fn an_inherited_session_cookie_is_sent_on_every_hop() {
     sessions.record_set_cookies("work", ["sid=pre-existing; Path=/"], "127.0.0.1", "/");
 
     let mut spec = RequestSpec::new("GET", format!("http://{addr}/one"));
-    spec.auth = Some(Auth::Session { session: Some("work".into()) });
+    spec.auth = Some(Auth::Session {
+        session: Some("work".into()),
+    });
 
     let mut executor = Executor::new();
     let mut resolver = Resolver::new();
@@ -324,5 +399,8 @@ async fn an_inherited_session_cookie_is_sent_on_every_hop() {
     let first = requests.recv().await.expect("one");
     let second = requests.recv().await.expect("two");
     assert!(has_header(&first, "cookie", "sid=pre-existing"), "{first}");
-    assert!(has_header(&second, "cookie", "sid=pre-existing"), "{second}");
+    assert!(
+        has_header(&second, "cookie", "sid=pre-existing"),
+        "{second}"
+    );
 }

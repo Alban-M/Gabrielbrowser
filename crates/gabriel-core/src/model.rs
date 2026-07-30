@@ -418,8 +418,12 @@ mod tests {
         spec.name = Some("Create user".into());
         spec.headers.set("Content-Type", "application/json");
         spec.headers.set("Accept", "application/json");
-        spec.auth = Some(Auth::Bearer { token: "{{secret:api_token}}".into() });
-        spec.body = Some(Body::Json { content: "{\n  \"name\": \"ada\"\n}".into() });
+        spec.auth = Some(Auth::Bearer {
+            token: "{{secret:api_token}}".into(),
+        });
+        spec.body = Some(Body::Json {
+            content: "{\n  \"name\": \"ada\"\n}".into(),
+        });
         spec.captures.push(VarCapture {
             var: "user_id".into(),
             from: CaptureSource::Body,
@@ -452,11 +456,17 @@ mod tests {
             panic!("expected an OAuth2 block, got {:?}", spec.auth);
         };
         assert_eq!(config.grant, OAuth2Grant::AuthorizationCode);
-        assert_eq!(config.authorize_url.as_deref(), Some("https://auth.test/authorize"));
+        assert_eq!(
+            config.authorize_url.as_deref(),
+            Some("https://auth.test/authorize")
+        );
 
         // And it round-trips back to the same spelling.
         let text = toml::to_string_pretty(&spec).unwrap();
-        assert!(text.contains("type = \"oauth2\""), "wrote the wrong spelling:\n{text}");
+        assert!(
+            text.contains("type = \"oauth2\""),
+            "wrote the wrong spelling:\n{text}"
+        );
     }
 
     #[test]

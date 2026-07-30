@@ -182,7 +182,10 @@ impl Proxy {
     pub async fn start(self) -> Result<RunningProxy, ProxyError> {
         let listener = TcpListener::bind(self.state.config.addr)
             .await
-            .map_err(|source| ProxyError::Bind { addr: self.state.config.addr, source })?;
+            .map_err(|source| ProxyError::Bind {
+                addr: self.state.config.addr,
+                source,
+            })?;
         let addr = listener.local_addr().unwrap_or(self.state.config.addr);
 
         let state = self.state.clone();
@@ -224,7 +227,9 @@ async fn handle_request(
 /// Route one request: an upgrade gets spliced, everything else is forwarded.
 async fn dispatch(req: Request<Incoming>, url: String, state: Arc<ProxyState>) -> ProxyResponse {
     if upgrade_target(&req).is_some() {
-        return relay_upgrade(req, url, state).await.unwrap_or_else(bad_gateway);
+        return relay_upgrade(req, url, state)
+            .await
+            .unwrap_or_else(bad_gateway);
     }
     forward(req, url, state).await.unwrap_or_else(bad_gateway)
 }
@@ -235,7 +240,11 @@ fn handle_connect(req: Request<Incoming>, state: Arc<ProxyState>) -> ProxyRespon
     let Some(authority) = req.uri().authority().map(|a| a.to_string()) else {
         return status_response(StatusCode::BAD_REQUEST, "CONNECT without an authority");
     };
-    let host = authority.split(':').next().unwrap_or(&authority).to_string();
+    let host = authority
+        .split(':')
+        .next()
+        .unwrap_or(&authority)
+        .to_string();
     let intercept = state.config.intercepts(&host);
 
     tokio::spawn(async move {
@@ -408,7 +417,10 @@ async fn relay_upgrade(
     let sequence = state.counter.fetch_add(1, Ordering::Relaxed);
     let mut request_headers = FieldMap::default();
     for (name, value) in parts.headers.iter() {
-        request_headers.insert(name.as_str(), value.to_str().unwrap_or("<binary header value>"));
+        request_headers.insert(
+            name.as_str(),
+            value.to_str().unwrap_or("<binary header value>"),
+        );
     }
     let _ = state.store.append(&Capture {
         id: format!("c{:x}{:04x}", gabriel_core::now_ms(), sequence & 0xffff),
@@ -521,7 +533,10 @@ async fn forward(
     let mut response_headers = FieldMap::default();
     let mut set_cookies = Vec::new();
     for (name, value) in response.headers() {
-        let value = value.to_str().unwrap_or("<binary header value>").to_string();
+        let value = value
+            .to_str()
+            .unwrap_or("<binary header value>")
+            .to_string();
         if name.as_str().eq_ignore_ascii_case("set-cookie") {
             set_cookies.push(value.clone());
         }
@@ -744,7 +759,10 @@ mod tests {
     }
 
     fn headers(pairs: &[(&str, &str)]) -> FieldMap {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -762,7 +780,10 @@ mod tests {
     #[test]
     fn ordinary_responses_are_buffered_so_they_can_be_captured() {
         assert!(!streams_indefinitely(
-            &headers(&[("content-type", "application/json"), ("content-length", "1024")]),
+            &headers(&[
+                ("content-type", "application/json"),
+                ("content-length", "1024")
+            ]),
             8_000_000
         ));
         // A chunked JSON response has no content-length and must still buffer.
@@ -775,7 +796,10 @@ mod tests {
     #[test]
     fn a_body_too_large_to_capture_is_streamed_instead_of_held() {
         assert!(streams_indefinitely(
-            &headers(&[("content-type", "video/mp4"), ("content-length", "900000000")]),
+            &headers(&[
+                ("content-type", "video/mp4"),
+                ("content-length", "900000000")
+            ]),
             8_000_000
         ));
     }
@@ -798,11 +822,17 @@ mod tests {
 
     #[test]
     fn a_connection_token_list_is_parsed_not_substring_matched() {
-        let req = request_with(&[("connection", "keep-alive, Upgrade"), ("upgrade", "websocket")]);
+        let req = request_with(&[
+            ("connection", "keep-alive, Upgrade"),
+            ("upgrade", "websocket"),
+        ]);
         assert_eq!(upgrade_target(&req).as_deref(), Some("websocket"));
 
         // "upgrade-insecure-requests" must not read as an upgrade request.
-        let req = request_with(&[("connection", "keep-alive"), ("upgrade-insecure-requests", "1")]);
+        let req = request_with(&[
+            ("connection", "keep-alive"),
+            ("upgrade-insecure-requests", "1"),
+        ]);
         assert_eq!(upgrade_target(&req), None);
     }
 

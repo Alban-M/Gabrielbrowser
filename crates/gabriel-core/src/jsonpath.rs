@@ -39,7 +39,9 @@ enum Segment {
 
 fn parse(path: &str) -> Result<Vec<Segment>> {
     let path = path.trim();
-    let path = path.strip_prefix("$.").unwrap_or_else(|| path.strip_prefix('$').unwrap_or(path));
+    let path = path
+        .strip_prefix("$.")
+        .unwrap_or_else(|| path.strip_prefix('$').unwrap_or(path));
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut chars = path.chars().peekable();

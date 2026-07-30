@@ -112,7 +112,9 @@ impl<'a> Resolver<'a> {
             let value = match value {
                 FieldValue::One(s) => FieldValue::One(self.resolve(s)?),
                 FieldValue::Many(list) => FieldValue::Many(
-                    list.iter().map(|s| self.resolve(s)).collect::<Result<Vec<_>>>()?,
+                    list.iter()
+                        .map(|s| self.resolve(s))
+                        .collect::<Result<Vec<_>>>()?,
                 ),
             };
             out.insert(key, value);
@@ -123,7 +125,10 @@ impl<'a> Resolver<'a> {
     fn expand(&mut self, template: &str, depth: usize, stack: &mut Vec<String>) -> Result<String> {
         if depth > MAX_DEPTH {
             return Err(Error::VariableRecursion(
-                stack.last().cloned().unwrap_or_else(|| template.to_string()),
+                stack
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| template.to_string()),
             ));
         }
         // Fast path: most strings contain no template at all.

@@ -6,7 +6,9 @@ use std::path::PathBuf;
 /// wrapper sentence: the offending file, variable, or path is part of the message.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("unknown variable `{0}` — define it in the environment, the vault, or pass --var {0}=…")]
+    #[error(
+        "unknown variable `{0}` — define it in the environment, the vault, or pass --var {0}=…"
+    )]
     UnknownVariable(String),
 
     #[error("unknown secret `{0}` — add it with `gabriel vault set {0}`")]
@@ -42,10 +44,16 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl Error {
     pub fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Self {
-        Error::Io { path: path.into(), source }
+        Error::Io {
+            path: path.into(),
+            source,
+        }
     }
 
     pub fn format(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
-        Error::Format { path: path.into(), message: message.into() }
+        Error::Format {
+            path: path.into(),
+            message: message.into(),
+        }
     }
 }

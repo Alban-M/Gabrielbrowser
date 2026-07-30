@@ -196,8 +196,9 @@ fn first_certificate(pem: &str, path: &Path) -> Result<CertificateDer<'static>> 
     // tree because rustls depends on it, so this removes a dependency instead
     // of adding one.
     use rustls::pki_types::pem::PemObject as _;
-    CertificateDer::from_pem_slice(pem.as_bytes())
-        .map_err(|_| CaError::NoCertificate { path: path.to_path_buf() })
+    CertificateDer::from_pem_slice(pem.as_bytes()).map_err(|_| CaError::NoCertificate {
+        path: path.to_path_buf(),
+    })
 }
 
 fn read(path: &Path) -> Result<String> {
@@ -208,7 +209,10 @@ fn read(path: &Path) -> Result<String> {
 }
 
 fn write(path: &Path, bytes: &[u8], _mode: u32) -> Result<()> {
-    let io = |source| CaError::Io { path: path.to_path_buf(), source };
+    let io = |source| CaError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
 
     #[cfg(unix)]
     {
@@ -257,7 +261,11 @@ mod tests {
         assert!(pem.starts_with("-----BEGIN CERTIFICATE-----"));
 
         let second = CertificateAuthority::load_or_create(&dir).unwrap();
-        assert_eq!(second.cert_pem(), pem, "a second run must not re-mint the CA");
+        assert_eq!(
+            second.cert_pem(),
+            pem,
+            "a second run must not re-mint the CA"
+        );
     }
 
     #[cfg(unix)]

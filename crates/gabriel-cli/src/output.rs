@@ -147,7 +147,8 @@ pub fn write_run<W: std::io::Write>(
     body_limit: usize,
 ) -> std::io::Result<()> {
     let response = &outcome.response;
-    writeln!(w, 
+    writeln!(
+        w,
         "{} {}",
         style.bold(&outcome.sent.method),
         style.safe(&redactor.apply(&outcome.sent.url))
@@ -155,7 +156,8 @@ pub fn write_run<W: std::io::Write>(
 
     if verbose {
         for (name, value) in &outcome.sent.headers {
-            writeln!(w, 
+            writeln!(
+                w,
                 "  {} {}",
                 style.dim(&style.safe(&format!("{name}:"))),
                 style.safe(&redactor.apply(value))
@@ -168,7 +170,8 @@ pub fn write_run<W: std::io::Write>(
         writeln!(w)?;
     }
 
-    writeln!(w, 
+    writeln!(
+        w,
         "{} {} {} {} {}",
         style.status(response.status),
         style.dim(&response.status_text),
@@ -201,7 +204,8 @@ pub fn write_run<W: std::io::Write>(
     if !outcome.captured.is_empty() {
         writeln!(w)?;
         for (name, value) in &outcome.captured {
-            writeln!(w, 
+            writeln!(
+                w,
                 "{} {} = {}",
                 style.cyan("captured"),
                 style.safe(name),
@@ -214,9 +218,15 @@ pub fn write_run<W: std::io::Write>(
         writeln!(w)?;
         for assertion in &outcome.assertions {
             if assertion.passed {
-                writeln!(w, "{} {}", style.green("✓"), style.safe(&assertion.description))?;
+                writeln!(
+                    w,
+                    "{} {}",
+                    style.green("✓"),
+                    style.safe(&assertion.description)
+                )?;
             } else {
-                writeln!(w, 
+                writeln!(
+                    w,
                     "{} {} {}",
                     style.red("✗"),
                     style.safe(&assertion.description),
@@ -267,7 +277,10 @@ pub fn print_diff(diff: &ResponseDiff, style: &Style) {
             print_change(change, style);
         }
     } else if diff.body_is_opaque {
-        println!("{}", style.dim("body identical (not JSON — compared as bytes)"));
+        println!(
+            "{}",
+            style.dim("body identical (not JSON — compared as bytes)")
+        );
     }
 
     let (before, after) = diff.duration_ms;
@@ -320,17 +333,29 @@ pub fn format_duration(ms: u64) -> String {
         ms if ms < HOUR => {
             let minutes = ms / MINUTE;
             let seconds = (ms % MINUTE) / SECOND;
-            if seconds == 0 { format!("{minutes}m") } else { format!("{minutes}m {seconds}s") }
+            if seconds == 0 {
+                format!("{minutes}m")
+            } else {
+                format!("{minutes}m {seconds}s")
+            }
         }
         ms if ms < DAY => {
             let hours = ms / HOUR;
             let minutes = (ms % HOUR) / MINUTE;
-            if minutes == 0 { format!("{hours}h") } else { format!("{hours}h {minutes}m") }
+            if minutes == 0 {
+                format!("{hours}h")
+            } else {
+                format!("{hours}h {minutes}m")
+            }
         }
         ms => {
             let days = ms / DAY;
             let hours = (ms % DAY) / HOUR;
-            if hours == 0 { format!("{days}d") } else { format!("{days}d {hours}h") }
+            if hours == 0 {
+                format!("{days}d")
+            } else {
+                format!("{days}d {hours}h")
+            }
         }
     }
 }
@@ -402,7 +427,10 @@ mod tests {
 
     #[test]
     fn styles_are_plain_when_disabled() {
-        let style = Style { enabled: false, tty: false };
+        let style = Style {
+            enabled: false,
+            tty: false,
+        };
         assert_eq!(style.red("boom"), "boom");
         assert_eq!(style.status(500), "500");
     }
@@ -411,29 +439,48 @@ mod tests {
     fn escape_sequences_from_a_response_cannot_reach_the_terminal() {
         // "clear the line, go to column 0, print a reassuring lie"
         let hostile = "\x1b[2K\rgabriel: 0 vulnerabilities found";
-        let printed = Style { enabled: true, tty: true }.safe(hostile);
+        let printed = Style {
+            enabled: true,
+            tty: true,
+        }
+        .safe(hostile);
 
         assert!(!printed.contains('\x1b'), "ESC survived: {printed:?}");
         assert!(!printed.contains('\r'), "CR survived: {printed:?}");
-        assert!(printed.starts_with("^[[2K^M"), "unexpected rendering: {printed}");
+        assert!(
+            printed.starts_with("^[[2K^M"),
+            "unexpected rendering: {printed}"
+        );
         // The text itself is still readable, just inert.
         assert!(printed.contains("0 vulnerabilities found"));
     }
 
     #[test]
     fn other_control_bytes_are_neutralised_too() {
-        let style = Style { enabled: true, tty: true };
+        let style = Style {
+            enabled: true,
+            tty: true,
+        };
         // Terminal title, bell, backspace-based overwriting, and a C1 escape.
         assert_eq!(style.safe("\x1b]0;title\x07"), "^[]0;title^G");
-        assert_eq!(style.safe("secret\x08\x08\x08\x08\x08\x08public"), "secret^H^H^H^H^H^Hpublic");
+        assert_eq!(
+            style.safe("secret\x08\x08\x08\x08\x08\x08public"),
+            "secret^H^H^H^H^H^Hpublic"
+        );
         assert_eq!(style.safe("\u{9b}[31m"), "\\u{9b}[31m");
         assert_eq!(style.safe("\x7f"), "^?");
     }
 
     #[test]
     fn newlines_tabs_and_text_are_left_alone() {
-        let style = Style { enabled: true, tty: true };
-        assert_eq!(style.safe("line one\nline two\tindented"), "line one\nline two\tindented");
+        let style = Style {
+            enabled: true,
+            tty: true,
+        };
+        assert_eq!(
+            style.safe("line one\nline two\tindented"),
+            "line one\nline two\tindented"
+        );
         assert_eq!(style.safe("café ☕ 日本語 🔒"), "café ☕ 日本語 🔒");
         assert_eq!(style.safe("{\"a\": 1}"), "{\"a\": 1}");
     }
@@ -442,7 +489,10 @@ mod tests {
     /// what the server actually sent, and a pipe is not a terminal to attack.
     #[test]
     fn a_pipe_receives_the_bytes_unaltered() {
-        let style = Style { enabled: false, tty: false };
+        let style = Style {
+            enabled: false,
+            tty: false,
+        };
         let hostile = "\x1b[2K\rtext";
         assert_eq!(style.safe(hostile), hostile);
     }
@@ -485,11 +535,22 @@ mod tests {
     /// is exactly where a leak would hide.
     #[test]
     fn nothing_printed_leaks_a_secret_or_an_escape_sequence() {
-        let style = Style { enabled: true, tty: true };
+        let style = Style {
+            enabled: true,
+            tty: true,
+        };
         let redactor = Redactor::new(vec!["sk-live-CANARY-7788".to_string()]);
 
         let mut out = Vec::new();
-        write_run(&mut out, &hostile_outcome(), &style, &redactor, true, 10_000).unwrap();
+        write_run(
+            &mut out,
+            &hostile_outcome(),
+            &style,
+            &redactor,
+            true,
+            10_000,
+        )
+        .unwrap();
         let printed = String::from_utf8(out).expect("utf-8 output");
 
         assert!(
@@ -503,16 +564,30 @@ mod tests {
         );
         // And the output is still useful.
         assert!(printed.contains("redacted"));
-        assert!(printed.contains("gabriel: 0 problems"), "text should survive, inert");
+        assert!(
+            printed.contains("gabriel: 0 problems"),
+            "text should survive, inert"
+        );
     }
 
     #[test]
     fn secrets_are_masked_in_the_url_headers_body_and_captures() {
-        let style = Style { enabled: false, tty: false };
+        let style = Style {
+            enabled: false,
+            tty: false,
+        };
         let redactor = Redactor::new(vec!["sk-live-CANARY-7788".to_string()]);
 
         let mut out = Vec::new();
-        write_run(&mut out, &hostile_outcome(), &style, &redactor, true, 10_000).unwrap();
+        write_run(
+            &mut out,
+            &hostile_outcome(),
+            &style,
+            &redactor,
+            true,
+            10_000,
+        )
+        .unwrap();
         let printed = String::from_utf8(out).unwrap();
 
         // Six distinct places the same secret appears: the URL, the request's
@@ -530,11 +605,22 @@ mod tests {
     /// went out.
     #[test]
     fn a_secret_reflected_in_a_response_header_is_masked_too() {
-        let style = Style { enabled: false, tty: false };
+        let style = Style {
+            enabled: false,
+            tty: false,
+        };
         let redactor = Redactor::new(vec!["sk-live-CANARY-7788".to_string()]);
 
         let mut out = Vec::new();
-        write_run(&mut out, &hostile_outcome(), &style, &redactor, true, 10_000).unwrap();
+        write_run(
+            &mut out,
+            &hostile_outcome(),
+            &style,
+            &redactor,
+            true,
+            10_000,
+        )
+        .unwrap();
         let printed = String::from_utf8(out).unwrap();
 
         let reflected = printed

@@ -59,11 +59,17 @@ impl RunReport {
     }
 
     pub fn failures(&self) -> usize {
-        self.cases.iter().filter(|c| c.outcome == CaseOutcome::Failed).count()
+        self.cases
+            .iter()
+            .filter(|c| c.outcome == CaseOutcome::Failed)
+            .count()
     }
 
     pub fn errors(&self) -> usize {
-        self.cases.iter().filter(|c| matches!(c.outcome, CaseOutcome::Errored(_))).count()
+        self.cases
+            .iter()
+            .filter(|c| matches!(c.outcome, CaseOutcome::Errored(_)))
+            .count()
     }
 
     pub fn passed(&self) -> usize {
@@ -98,7 +104,10 @@ pub fn to_junit(report: &RunReport, redactor: &Redactor) -> String {
 
     for case in &report.cases {
         let cases = junit_cases(case, redactor);
-        let failures = cases.iter().filter(|c| c.kind == JunitKind::Failure).count();
+        let failures = cases
+            .iter()
+            .filter(|c| c.kind == JunitKind::Failure)
+            .count();
         let errors = cases.iter().filter(|c| c.kind == JunitKind::Error).count();
 
         out.push_str(&format!(
@@ -114,7 +123,10 @@ pub fn to_junit(report: &RunReport, redactor: &Redactor) -> String {
         for (name, value) in [
             ("method", case.method.clone()),
             ("url", redactor.apply(&case.url)),
-            ("status", case.status.map(|s| s.to_string()).unwrap_or_default()),
+            (
+                "status",
+                case.status.map(|s| s.to_string()).unwrap_or_default(),
+            ),
         ] {
             out.push_str(&format!(
                 "      <property name=\"{}\" value=\"{}\"/>\n",
@@ -190,7 +202,9 @@ fn junit_cases(case: &CaseResult, redactor: &Redactor) -> Vec<JunitCase> {
                 "{} {} → {}",
                 case.method,
                 redactor.apply(&case.url),
-                case.status.map(|s| s.to_string()).unwrap_or_else(|| "no response".into())
+                case.status
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "no response".into())
             ),
             kind: JunitKind::Passed,
             message: String::new(),
@@ -202,7 +216,11 @@ fn junit_cases(case: &CaseResult, redactor: &Redactor) -> Vec<JunitCase> {
         .iter()
         .map(|assertion| JunitCase {
             name: redactor.apply(&assertion.description),
-            kind: if assertion.passed { JunitKind::Passed } else { JunitKind::Failure },
+            kind: if assertion.passed {
+                JunitKind::Passed
+            } else {
+                JunitKind::Failure
+            },
             message: format!(
                 "expected {}, got {}",
                 redactor.apply(&assertion.description),
@@ -212,7 +230,9 @@ fn junit_cases(case: &CaseResult, redactor: &Redactor) -> Vec<JunitCase> {
                 "{} {}\nstatus: {}\n{}\nactual: {}",
                 case.method,
                 redactor.apply(&case.url),
-                case.status.map(|s| s.to_string()).unwrap_or_else(|| "-".into()),
+                case.status
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".into()),
                 redactor.apply(&assertion.description),
                 redactor.apply(&assertion.actual)
             ),
@@ -259,7 +279,11 @@ fn xml(text: &str) -> String {
 /// script would be the wrong thing to ship in a document built from untrusted
 /// response data.
 pub fn to_html(report: &RunReport, redactor: &Redactor) -> String {
-    let status_word = if report.is_green() { "passed" } else { "failed" };
+    let status_word = if report.is_green() {
+        "passed"
+    } else {
+        "failed"
+    };
     let mut out = String::new();
 
     out.push_str(&format!(
@@ -327,7 +351,11 @@ footer {{ margin-top: 2rem; color: var(--muted); font-size: .85rem; }}
             CaseOutcome::Errored(_) => ("error", "errored"),
         };
         // Failures start expanded; nobody opens a report to read the passes.
-        let open = if case.outcome == CaseOutcome::Passed { "" } else { " open" };
+        let open = if case.outcome == CaseOutcome::Passed {
+            ""
+        } else {
+            " open"
+        };
 
         out.push_str(&format!(
             "<details class=\"case\"{open}>\n  <summary><span class=\"{class}\">●</span> \
@@ -344,7 +372,9 @@ footer {{ margin-top: 2rem; color: var(--muted); font-size: .85rem; }}
 
         out.push_str(&format!(
             "    <div class=\"actual\">status {} · {}</div>\n",
-            case.status.map(|s| s.to_string()).unwrap_or_else(|| "—".into()),
+            case.status
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "—".into()),
             html(&crate::output::format_duration(case.duration_ms))
         ));
 
@@ -358,7 +388,11 @@ footer {{ margin-top: 2rem; color: var(--muted); font-size: .85rem; }}
         if !case.assertions.is_empty() {
             out.push_str("    <ul>\n");
             for assertion in &case.assertions {
-                let mark = if assertion.passed { "<span class=\"pass\">✓</span>" } else { "<span class=\"fail\">✗</span>" };
+                let mark = if assertion.passed {
+                    "<span class=\"pass\">✓</span>"
+                } else {
+                    "<span class=\"fail\">✗</span>"
+                };
                 out.push_str(&format!(
                     "      <li>{mark} {desc}{actual}</li>\n",
                     mark = mark,
@@ -432,12 +466,24 @@ mod tests {
             environment: Some("staging".to_string()),
             started_ms: 1_785_283_200_000,
             cases: vec![
-                case("users/list", CaseOutcome::Passed, vec![assertion("status == 200", true)]),
-                case("users/create", CaseOutcome::Failed, vec![
-                    assertion("status == 201", false),
-                    assertion("body id exists", true),
-                ]),
-                case("users/delete", CaseOutcome::Errored("connection refused".into()), vec![]),
+                case(
+                    "users/list",
+                    CaseOutcome::Passed,
+                    vec![assertion("status == 200", true)],
+                ),
+                case(
+                    "users/create",
+                    CaseOutcome::Failed,
+                    vec![
+                        assertion("status == 201", false),
+                        assertion("body id exists", true),
+                    ],
+                ),
+                case(
+                    "users/delete",
+                    CaseOutcome::Errored("connection refused".into()),
+                    vec![],
+                ),
             ],
         }
     }
@@ -460,7 +506,10 @@ mod tests {
     fn junit_reports_counts_at_the_top_level() {
         let xml = to_junit(&report(), &plain());
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
-        assert!(xml.contains(r#"<testsuites name="demo" tests="3" failures="1" errors="1""#), "{xml}");
+        assert!(
+            xml.contains(r#"<testsuites name="demo" tests="3" failures="1" errors="1""#),
+            "{xml}"
+        );
     }
 
     #[test]
@@ -489,7 +538,10 @@ mod tests {
             cases: vec![case("ping", CaseOutcome::Passed, Vec::new())],
         };
         let xml = to_junit(&report, &plain());
-        assert!(xml.contains("<testcase"), "a sent request should be visible:\n{xml}");
+        assert!(
+            xml.contains("<testcase"),
+            "a sent request should be visible:\n{xml}"
+        );
         assert!(xml.contains("→ 200"), "{xml}");
     }
 
@@ -525,7 +577,10 @@ mod tests {
         report.cases[0].id = "weird\u{0}\u{1}\u{1b}name".into();
         let xml = to_junit(&report, &plain());
 
-        assert!(!xml.contains('\u{0}') && !xml.contains('\u{1b}'), "control bytes survived");
+        assert!(
+            !xml.contains('\u{0}') && !xml.contains('\u{1b}'),
+            "control bytes survived"
+        );
         assert!(xml.contains("weirdname"), "{xml}");
         // Tabs and newlines are legal and should be kept.
         assert_eq!(super::xml("a\tb\nc"), "a\tb\nc");
@@ -542,8 +597,14 @@ mod tests {
         let xml = to_junit(&report, &redactor);
         let page = to_html(&report, &redactor);
 
-        assert!(!xml.contains("sk-live-SECRET"), "JUnit leaked a secret:\n{xml}");
-        assert!(!page.contains("sk-live-SECRET"), "HTML leaked a secret:\n{page}");
+        assert!(
+            !xml.contains("sk-live-SECRET"),
+            "JUnit leaked a secret:\n{xml}"
+        );
+        assert!(
+            !page.contains("sk-live-SECRET"),
+            "HTML leaked a secret:\n{page}"
+        );
     }
 
     #[test]
@@ -551,8 +612,14 @@ mod tests {
         let page = to_html(&report(), &plain());
         assert!(page.starts_with("<!doctype html>"));
         // Nothing fetched, nothing executed.
-        assert!(!page.contains("<script"), "a report should not carry script");
-        assert!(!page.contains("http://") && !page.to_lowercase().contains("src="), "{page}");
+        assert!(
+            !page.contains("<script"),
+            "a report should not carry script"
+        );
+        assert!(
+            !page.contains("http://") && !page.to_lowercase().contains("src="),
+            "{page}"
+        );
         assert!(page.contains("</html>"));
     }
 
@@ -562,14 +629,19 @@ mod tests {
     fn html_escapes_server_controlled_data() {
         let mut report = report();
         report.cases[1].url = "https://api.test/<script>alert(1)</script>".into();
-        report.cases[1].assertions[0].actual =
-            r#"<img src=x onerror="alert(1)">"#.into();
+        report.cases[1].assertions[0].actual = r#"<img src=x onerror="alert(1)">"#.into();
         report.cases[2].outcome = CaseOutcome::Errored("<b>bold</b>".into());
 
         let page = to_html(&report, &plain());
 
-        assert!(!page.contains("<script>alert"), "script tag survived:\n{page}");
-        assert!(!page.contains("onerror=\"alert"), "event handler survived:\n{page}");
+        assert!(
+            !page.contains("<script>alert"),
+            "script tag survived:\n{page}"
+        );
+        assert!(
+            !page.contains("onerror=\"alert"),
+            "event handler survived:\n{page}"
+        );
         assert!(!page.contains("<b>bold</b>"), "markup survived:\n{page}");
         assert!(page.contains("&lt;script&gt;"), "{page}");
     }
@@ -578,7 +650,10 @@ mod tests {
     fn html_shows_the_summary_and_marks_failures() {
         let page = to_html(&report(), &plain());
         assert!(!page.contains("demo — <span class=\"pass\">passed</span>"));
-        assert!(page.contains(">failed<"), "the run should read as failed:\n{page}");
+        assert!(
+            page.contains(">failed<"),
+            "the run should read as failed:\n{page}"
+        );
         assert!(page.contains("staging"), "environment should be shown");
         // Failures are expanded; passes are not.
         assert!(page.contains("<details class=\"case\" open>"), "{page}");
@@ -591,7 +666,11 @@ mod tests {
             collection: "demo".into(),
             environment: None,
             started_ms: 0,
-            cases: vec![case("ok", CaseOutcome::Passed, vec![assertion("status == 200", true)])],
+            cases: vec![case(
+                "ok",
+                CaseOutcome::Passed,
+                vec![assertion("status == 200", true)],
+            )],
         };
         assert!(report.is_green());
         let page = to_html(&report, &plain());
@@ -609,7 +688,10 @@ mod tests {
             cases: Vec::new(),
         };
         let xml = to_junit(&report, &plain());
-        assert!(xml.contains(r#"tests="0""#) && xml.contains("</testsuites>"), "{xml}");
+        assert!(
+            xml.contains(r#"tests="0""#) && xml.contains("</testsuites>"),
+            "{xml}"
+        );
         assert!(to_html(&report, &plain()).contains("</html>"));
     }
 }

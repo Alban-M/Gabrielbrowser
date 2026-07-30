@@ -113,18 +113,33 @@ impl Vault {
             return Self::create(path, source);
         }
 
-        let text = std::fs::read_to_string(&path)
-            .map_err(|source| VaultError::Io { path: path.clone(), source })?;
-        let file: VaultFile = serde_json::from_str(&text)
-            .map_err(|e| VaultError::Malformed { path: path.clone(), message: e.to_string() })?;
+        let text = std::fs::read_to_string(&path).map_err(|source| VaultError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let file: VaultFile = serde_json::from_str(&text).map_err(|e| VaultError::Malformed {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
 
         if file.version != FORMAT_VERSION {
-            return Err(VaultError::Version { path, found: file.version });
+            return Err(VaultError::Version {
+                path,
+                found: file.version,
+            });
         }
 
         let key = match (&file.kdf, source) {
             (Kdf::Keychain, _) => keychain_key(&file.id)?,
-            (Kdf::Argon2id { salt, m_cost, t_cost, p_cost }, KeySource::Passphrase(pass)) => {
+            (
+                Kdf::Argon2id {
+                    salt,
+                    m_cost,
+                    t_cost,
+                    p_cost,
+                },
+                KeySource::Passphrase(pass),
+            ) => {
                 let salt = gabriel_core::b64_decode(salt).ok_or_else(|| VaultError::Malformed {
                     path: path.clone(),
                     message: "salt is not valid base64".into(),
@@ -163,7 +178,14 @@ impl Vault {
                 message: e.to_string(),
             })?;
 
-        Ok(Vault { path, id: file.id, key, kdf: file.kdf, secrets, dirty: false })
+        Ok(Vault {
+            path,
+            id: file.id,
+            key,
+            kdf: file.kdf,
+            secrets,
+            dirty: false,
+        })
     }
 
     fn create(path: PathBuf, source: &KeySource) -> Result<Self> {
@@ -188,7 +210,14 @@ impl Vault {
                 )
             }
         };
-        let mut vault = Vault { path, id, key, kdf, secrets: BTreeMap::new(), dirty: true };
+        let mut vault = Vault {
+            path,
+            id,
+            key,
+            kdf,
+            secrets: BTreeMap::new(),
+            dirty: true,
+        };
         vault.save()?;
         // Written to disk, so no longer pending: leaving the flag set makes
         // `save_if_dirty` rewrite an unchanged vault.
@@ -276,7 +305,10 @@ impl SecretProvider for Vault {
 /// Write with `0600` where the platform has POSIX permissions. A vault that
 /// every process on the machine can read is not a vault.
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let io = |source| VaultError::Io { path: path.to_path_buf(), source };
+    let io = |source| VaultError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
 
     #[cfg(unix)]
     {
@@ -300,8 +332,10 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 fn derive_key(passphrase: &str, salt: &[u8], m: u32, t: u32, p: u32) -> Result<[u8; 32]> {
-    let params = argon2::Params::new(m, t, p, Some(32))
-        .map_err(|e| VaultError::Malformed { path: PathBuf::new(), message: e.to_string() })?;
+    let params = argon2::Params::new(m, t, p, Some(32)).map_err(|e| VaultError::Malformed {
+        path: PathBuf::new(),
+        message: e.to_string(),
+    })?;
     let argon = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     let mut key = [0u8; 32];
     argon
@@ -383,7 +417,10 @@ mod tests {
         vault.save().unwrap();
 
         let wrong = KeySource::Passphrase("wrong horse battery".to_string());
-        assert!(matches!(Vault::open(&path, &wrong), Err(VaultError::Decrypt)));
+        assert!(matches!(
+            Vault::open(&path, &wrong),
+            Err(VaultError::Decrypt)
+        ));
     }
 
     #[test]
@@ -400,14 +437,20 @@ mod tests {
         file.ciphertext = gabriel_core::b64_encode(&bytes);
         std::fs::write(&path, serde_json::to_string(&file).unwrap()).unwrap();
 
-        assert!(matches!(Vault::open(&path, &passphrase()), Err(VaultError::Decrypt)));
+        assert!(matches!(
+            Vault::open(&path, &passphrase()),
+            Err(VaultError::Decrypt)
+        ));
     }
 
     #[test]
     fn rejects_a_trivial_passphrase() {
         let path = temp_path("vault.json");
         let weak = KeySource::Passphrase("short".to_string());
-        assert!(matches!(Vault::open(&path, &weak), Err(VaultError::WeakPassphrase)));
+        assert!(matches!(
+            Vault::open(&path, &weak),
+            Err(VaultError::WeakPassphrase)
+        ));
     }
 
     #[test]
@@ -465,7 +508,11 @@ mod tests {
 
         vault.set("k", "v");
         vault.save_if_dirty().unwrap();
-        assert_ne!(std::fs::read(&path).unwrap(), first, "a change was not persisted");
+        assert_ne!(
+            std::fs::read(&path).unwrap(),
+            first,
+            "a change was not persisted"
+        );
     }
 
     #[test]
@@ -486,7 +533,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         let path = temp_path("vault.json");
         let vault = Vault::open(&path, &passphrase()).unwrap();
-        let mode = std::fs::metadata(vault.path()).unwrap().permissions().mode();
+        let mode = std::fs::metadata(vault.path())
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o077, 0, "vault is readable by others: {mode:o}");
     }
 

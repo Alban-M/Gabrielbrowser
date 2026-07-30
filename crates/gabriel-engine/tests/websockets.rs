@@ -7,9 +7,9 @@
 
 use gabriel_core::model::{Auth, RequestSpec};
 use gabriel_core::vars::Resolver;
+use gabriel_engine::RunContext;
 use gabriel_engine::session::SessionStore;
 use gabriel_engine::websocket::{self, Direction, Payload, SocketEnd, WebSocketPlan};
-use gabriel_engine::RunContext;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -34,7 +34,10 @@ enum Behaviour {
 /// Headers the server saw on the upgrade request, for assertions.
 type SeenHeaders = Arc<Mutex<Vec<(String, String)>>>;
 
-async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (SocketAddr, SeenHeaders) {
+async fn serve(
+    behaviour: Behaviour,
+    subprotocol: Option<&'static str>,
+) -> (SocketAddr, SeenHeaders) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     let seen: SeenHeaders = Arc::new(Mutex::new(Vec::new()));
@@ -70,8 +73,7 @@ async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (Sock
                     Ok(response)
                 };
 
-                let Ok(mut socket) =
-                    tokio_tungstenite::accept_hdr_async(stream, callback).await
+                let Ok(mut socket) = tokio_tungstenite::accept_hdr_async(stream, callback).await
                 else {
                     return;
                 };
@@ -82,7 +84,11 @@ async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (Sock
                             match message {
                                 Message::Text(text) => {
                                     let reply = format!("echo: {text}");
-                                    if socket.send(Message::Text(Utf8Bytes::from(reply))).await.is_err() {
+                                    if socket
+                                        .send(Message::Text(Utf8Bytes::from(reply)))
+                                        .await
+                                        .is_err()
+                                    {
                                         return;
                                     }
                                 }
@@ -94,7 +100,11 @@ async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (Sock
                     Behaviour::Push(count) => {
                         for i in 0..count {
                             let frame = format!("{{\"tick\":{i}}}");
-                            if socket.send(Message::Text(Utf8Bytes::from(frame))).await.is_err() {
+                            if socket
+                                .send(Message::Text(Utf8Bytes::from(frame)))
+                                .await
+                                .is_err()
+                            {
                                 return;
                             }
                             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -103,7 +113,9 @@ async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (Sock
                         while socket.next().await.is_some() {}
                     }
                     Behaviour::CloseAfterOne => {
-                        let _ = socket.send(Message::Text(Utf8Bytes::from_static("last word"))).await;
+                        let _ = socket
+                            .send(Message::Text(Utf8Bytes::from_static("last word")))
+                            .await;
                         let _ = socket.close(None).await;
                     }
                     Behaviour::PingOnly => {
@@ -115,9 +127,7 @@ async fn serve(behaviour: Behaviour, subprotocol: Option<&'static str>) -> (Sock
                         }
                         while socket.next().await.is_some() {}
                     }
-                    Behaviour::Silent => {
-                        while socket.next().await.is_some() {}
-                    }
+                    Behaviour::Silent => while socket.next().await.is_some() {},
                 }
             });
         }
@@ -154,9 +164,15 @@ async fn a_frame_sent_comes_back_from_the_server() {
     assert_eq!(outcome.status, 101, "the handshake should have upgraded");
     assert_eq!(outcome.frames.len(), 2, "one sent, one received");
     assert_eq!(outcome.frames[0].direction, Direction::Sent);
-    assert_eq!(outcome.frames[0].payload, Payload::Text("hello socket".into()));
+    assert_eq!(
+        outcome.frames[0].payload,
+        Payload::Text("hello socket".into())
+    );
     assert_eq!(outcome.frames[1].direction, Direction::Received);
-    assert_eq!(outcome.frames[1].payload, Payload::Text("echo: hello socket".into()));
+    assert_eq!(
+        outcome.frames[1].payload,
+        Payload::Text("echo: hello socket".into())
+    );
 }
 
 #[tokio::test]
@@ -192,7 +208,9 @@ async fn templates_in_a_sent_frame_are_resolved() {
         Resolver::new().with_vars([("channel".to_string(), "orders".to_string())].into());
     let mut sessions = SessionStore::new();
     let mut ctx = RunContext::new(&mut resolver, &mut sessions);
-    let outcome = websocket::run(&spec(addr), &mut ctx, &plan, |_| {}).await.expect("socket");
+    let outcome = websocket::run(&spec(addr), &mut ctx, &plan, |_| {})
+        .await
+        .expect("socket");
 
     assert_eq!(
         outcome.frames[0].payload,
@@ -203,7 +221,10 @@ async fn templates_in_a_sent_frame_are_resolved() {
 #[tokio::test]
 async fn the_message_limit_ends_the_session() {
     let (addr, _) = serve(Behaviour::Push(20), None).await;
-    let plan = WebSocketPlan { max_messages: 3, ..Default::default() };
+    let plan = WebSocketPlan {
+        max_messages: 3,
+        ..Default::default()
+    };
 
     let outcome = run(&spec(addr), &plan).await.expect("socket");
     assert_eq!(outcome.ended, SocketEnd::MessageLimitReached);
@@ -213,7 +234,10 @@ async fn the_message_limit_ends_the_session() {
 #[tokio::test]
 async fn a_close_from_the_server_is_reported() {
     let (addr, _) = serve(Behaviour::CloseAfterOne, None).await;
-    let plan = WebSocketPlan { max_messages: 50, ..Default::default() };
+    let plan = WebSocketPlan {
+        max_messages: 50,
+        ..Default::default()
+    };
 
     let outcome = run(&spec(addr), &plan).await.expect("socket");
     assert_eq!(outcome.ended, SocketEnd::ClosedByServer);
@@ -239,9 +263,15 @@ async fn keepalive_pings_do_not_count_as_messages() {
     };
 
     let outcome = run(&spec(addr), &plan).await.expect("socket");
-    assert_eq!(outcome.ended, SocketEnd::TimedOut, "pings ended the session early");
+    assert_eq!(
+        outcome.ended,
+        SocketEnd::TimedOut,
+        "pings ended the session early"
+    );
     assert!(
-        outcome.received().any(|f| matches!(f.payload, Payload::Ping(_))),
+        outcome
+            .received()
+            .any(|f| matches!(f.payload, Payload::Ping(_))),
         "pings should still be recorded"
     );
 }
@@ -249,7 +279,10 @@ async fn keepalive_pings_do_not_count_as_messages() {
 #[tokio::test]
 async fn a_silent_socket_times_out_instead_of_hanging() {
     let (addr, _) = serve(Behaviour::Silent, None).await;
-    let plan = WebSocketPlan { max_duration: Duration::from_millis(250), ..Default::default() };
+    let plan = WebSocketPlan {
+        max_duration: Duration::from_millis(250),
+        ..Default::default()
+    };
 
     let started = std::time::Instant::now();
     let outcome = run(&spec(addr), &plan).await.expect("socket");
@@ -274,7 +307,10 @@ async fn close_after_send_does_not_wait_for_a_reply() {
 
     assert_eq!(outcome.ended, SocketEnd::ClosedAfterSend);
     assert_eq!(outcome.received().count(), 0);
-    assert!(started.elapsed() < Duration::from_secs(2), "it waited anyway");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "it waited anyway"
+    );
 }
 
 #[tokio::test]
@@ -282,10 +318,15 @@ async fn auth_and_custom_headers_travel_with_the_upgrade() {
     let (addr, seen) = serve(Behaviour::Silent, None).await;
 
     let mut spec = spec(addr);
-    spec.auth = Some(Auth::Bearer { token: "socket-token-123".into() });
+    spec.auth = Some(Auth::Bearer {
+        token: "socket-token-123".into(),
+    });
     spec.headers.set("X-Client", "gabriel-test");
 
-    let plan = WebSocketPlan { max_duration: Duration::from_millis(150), ..Default::default() };
+    let plan = WebSocketPlan {
+        max_duration: Duration::from_millis(150),
+        ..Default::default()
+    };
     run(&spec, &plan).await.expect("socket");
 
     let headers = seen.lock().unwrap();
@@ -295,7 +336,10 @@ async fn auth_and_custom_headers_travel_with_the_upgrade() {
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
             .map(|(_, v)| v.clone())
     };
-    assert_eq!(find("authorization").as_deref(), Some("Bearer socket-token-123"));
+    assert_eq!(
+        find("authorization").as_deref(),
+        Some("Bearer socket-token-123")
+    );
     assert_eq!(find("x-client").as_deref(), Some("gabriel-test"));
 }
 
@@ -304,15 +348,22 @@ async fn a_session_cookie_is_sent_on_the_upgrade() {
     let (addr, seen) = serve(Behaviour::Silent, None).await;
 
     let mut spec = spec(addr);
-    spec.auth = Some(Auth::Session { session: Some("work".into()) });
+    spec.auth = Some(Auth::Session {
+        session: Some("work".into()),
+    });
 
     let mut resolver = Resolver::new();
     let mut sessions = SessionStore::new();
     sessions.record_set_cookies("work", ["sid=socket-session"], "127.0.0.1", "/");
-    let plan = WebSocketPlan { max_duration: Duration::from_millis(150), ..Default::default() };
+    let plan = WebSocketPlan {
+        max_duration: Duration::from_millis(150),
+        ..Default::default()
+    };
     {
         let mut ctx = RunContext::new(&mut resolver, &mut sessions);
-        websocket::run(&spec, &mut ctx, &plan, |_| {}).await.expect("socket");
+        websocket::run(&spec, &mut ctx, &plan, |_| {})
+            .await
+            .expect("socket");
     }
 
     let headers = seen.lock().unwrap();
@@ -340,13 +391,19 @@ async fn a_negotiated_subprotocol_is_reported() {
         .iter()
         .find(|(n, _)| n.eq_ignore_ascii_case("sec-websocket-protocol"))
         .map(|(_, v)| v.clone());
-    assert_eq!(requested.as_deref(), Some("graphql-ws, graphql-transport-ws"));
+    assert_eq!(
+        requested.as_deref(),
+        Some("graphql-ws, graphql-transport-ws")
+    );
 }
 
 #[tokio::test]
 async fn frames_are_delivered_to_the_callback_as_they_arrive() {
     let (addr, _) = serve(Behaviour::Push(4), None).await;
-    let plan = WebSocketPlan { max_messages: 4, ..Default::default() };
+    let plan = WebSocketPlan {
+        max_messages: 4,
+        ..Default::default()
+    };
 
     let start = std::time::Instant::now();
     let timings = Arc::new(Mutex::new(Vec::new()));
@@ -375,6 +432,9 @@ async fn frames_are_delivered_to_the_callback_as_they_arrive() {
 async fn a_refused_connection_reports_a_handshake_failure() {
     // Nothing listening on this port.
     let spec = RequestSpec::new("GET", "ws://127.0.0.1:1/socket");
-    let error = run(&spec, &WebSocketPlan::default()).await.unwrap_err().to_string();
+    let error = run(&spec, &WebSocketPlan::default())
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("handshake"), "unhelpful error: {error}");
 }

@@ -88,10 +88,16 @@ mod tests {
     #[test]
     fn success_is_the_two_hundreds_only() {
         for status in [200u16, 201, 204, 299] {
-            assert!(response(status, None, "").is_success(), "{status} should be success");
+            assert!(
+                response(status, None, "").is_success(),
+                "{status} should be success"
+            );
         }
         for status in [199u16, 301, 400, 500] {
-            assert!(!response(status, None, "").is_success(), "{status} should not be");
+            assert!(
+                !response(status, None, "").is_success(),
+                "{status} should not be"
+            );
         }
     }
 

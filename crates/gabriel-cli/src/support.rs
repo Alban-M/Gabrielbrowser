@@ -24,7 +24,11 @@ pub struct LazySecrets {
 
 impl LazySecrets {
     pub fn new(path: impl Into<PathBuf>, source: KeySource) -> Self {
-        LazySecrets { path: path.into(), source, opened: RefCell::new(None) }
+        LazySecrets {
+            path: path.into(),
+            source,
+            opened: RefCell::new(None),
+        }
     }
 }
 
@@ -89,7 +93,10 @@ pub fn capture_to_response(capture: &Capture) -> ExecutedResponse {
             .and_then(|r| r.body.as_ref())
             .map(|b| b.bytes())
             .unwrap_or_default(),
-        timings: Timings { ttfb_ms: 0, total_ms: capture.duration_ms },
+        timings: Timings {
+            ttfb_ms: 0,
+            total_ms: capture.duration_ms,
+        },
         final_url: capture.request.url.clone(),
     }
 }
@@ -111,7 +118,10 @@ pub fn set_environment_var(
     let mut environment = if path.exists() {
         collection.environment(env_name)?
     } else {
-        Environment { name: Some(env_name.to_string()), ..Default::default() }
+        Environment {
+            name: Some(env_name.to_string()),
+            ..Default::default()
+        }
     };
 
     if environment.vars.contains_key(key) || environment.secrets.contains_key(key) {
@@ -179,7 +189,12 @@ pub fn print_capture(capture: &Capture, style: &Style) {
 /// Credentials seen in captured traffic are shown masked. `gabriel promote` moves
 /// them to the vault; nothing is served by printing them at a terminal.
 fn redact_credential(name: &str, value: &str) -> String {
-    const SENSITIVE: &[&str] = &["authorization", "cookie", "proxy-authorization", "x-api-key"];
+    const SENSITIVE: &[&str] = &[
+        "authorization",
+        "cookie",
+        "proxy-authorization",
+        "x-api-key",
+    ];
     if SENSITIVE.contains(&name.to_ascii_lowercase().as_str()) {
         let head: String = value.chars().take(12).collect();
         format!("{head}… ••••")
@@ -197,7 +212,10 @@ fn body_preview(body: &gabriel_core::capture::CapturedBody) -> String {
             ),
             Err(_) => output::truncate(text, 4000),
         },
-        None => format!("<{} of binary data>", gabriel_core::format_bytes(body.len())),
+        None => format!(
+            "<{} of binary data>",
+            gabriel_core::format_bytes(body.len())
+        ),
     }
 }
 
@@ -215,14 +233,20 @@ pub fn print_ca_instructions(cert_path: &Path, style: &Style) {
     println!();
 
     if cfg!(target_os = "macos") {
-        println!("{}", style.bold("macOS (system trust, needs your password):"));
+        println!(
+            "{}",
+            style.bold("macOS (system trust, needs your password):")
+        );
         println!(
             "  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain {}",
             cert_path.display()
         );
     } else if cfg!(target_os = "linux") {
         println!("{}", style.bold("Linux (Debian/Ubuntu):"));
-        println!("  sudo cp {} /usr/local/share/ca-certificates/gabriel-ca.crt", cert_path.display());
+        println!(
+            "  sudo cp {} /usr/local/share/ca-certificates/gabriel-ca.crt",
+            cert_path.display()
+        );
         println!("  sudo update-ca-certificates");
     } else if cfg!(target_os = "windows") {
         println!("{}", style.bold("Windows (elevated PowerShell):"));
@@ -296,7 +320,9 @@ mod tests {
                 status,
                 status_text: "OK".into(),
                 headers: FieldMap::default(),
-                body: Some(CapturedBody::Text { text: body.to_string() }),
+                body: Some(CapturedBody::Text {
+                    text: body.to_string(),
+                }),
             }),
         }
     }
@@ -361,7 +387,9 @@ mod tests {
     fn an_existing_variable_is_never_overwritten() {
         let collection = temp_collection();
         // `dev` ships with base_url already set.
-        assert!(!set_environment_var(&collection, "dev", "base_url", "https://other.test").unwrap());
+        assert!(
+            !set_environment_var(&collection, "dev", "base_url", "https://other.test").unwrap()
+        );
 
         let env = collection.environment("dev").unwrap();
         assert_eq!(env.vars.get("base_url").unwrap(), "https://httpbin.org");

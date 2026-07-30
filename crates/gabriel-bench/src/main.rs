@@ -40,7 +40,9 @@ async fn main() {
     println!(
         "host: {} · {} logical cores · loopback origin server",
         std::env::consts::OS,
-        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0)
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(0)
     );
 
     let addr = server::spawn().await;
@@ -68,12 +70,13 @@ fn startup_section() {
 
     let dir = temp_dir("startup");
     let collection = gabriel_collection::Collection::init(&dir, "bench").expect("init");
-    let mut collection =
-        gabriel_collection::Collection::load(collection.root()).expect("load");
+    let mut collection = gabriel_collection::Collection::load(collection.root()).expect("load");
     for i in 0..50 {
         let mut spec = RequestSpec::new("GET", "https://api.test/{{id}}");
         spec.name = Some(format!("request {i}"));
-        collection.save_request(&format!("group/request-{i}"), &spec).expect("save");
+        collection
+            .save_request(&format!("group/request-{i}"), &spec)
+            .expect("save");
     }
 
     let mut version = Samples::new("gabriel --version");
@@ -81,7 +84,10 @@ fn startup_section() {
 
     for i in 0..30 {
         let started = Instant::now();
-        let _ = std::process::Command::new(&binary).arg("--version").output().expect("run");
+        let _ = std::process::Command::new(&binary)
+            .arg("--version")
+            .output()
+            .expect("run");
         if i >= 5 {
             version.push(started.elapsed());
         }
@@ -104,7 +110,10 @@ fn startup_section() {
     );
 
     if let Ok(meta) = std::fs::metadata(&binary) {
-        print_row("binary size", gabriel_core::format_bytes(meta.len() as usize));
+        print_row(
+            "binary size",
+            gabriel_core::format_bytes(meta.len() as usize),
+        );
     }
 }
 
@@ -160,7 +169,10 @@ async fn request_path_section(origin: &str) {
     let overhead = plain.summary().p50_ms - baseline.summary().p50_ms;
     let full_overhead = loaded.summary().p50_ms - baseline.summary().p50_ms;
     print_row("engine overhead at p50", stats::ms(overhead.max(0.0)));
-    print_row("…with templates + asserts", stats::ms(full_overhead.max(0.0)));
+    print_row(
+        "…with templates + asserts",
+        stats::ms(full_overhead.max(0.0)),
+    );
 }
 
 /// Bodies are buffered rather than streamed, so this is where that shows.
@@ -168,8 +180,10 @@ async fn body_size_section(origin: &str) {
     let mut rows = Vec::new();
     for size in [1_024usize, 100 * 1024, 1024 * 1024, 8 * 1024 * 1024] {
         let url = format!("{origin}/bytes/{size}");
-        let mut samples =
-            Samples::new(format!("gabriel engine · {}", gabriel_core::format_bytes(size)));
+        let mut samples = Samples::new(format!(
+            "gabriel engine · {}",
+            gabriel_core::format_bytes(size)
+        ));
         let iterations = if size > 1024 * 1024 { 40 } else { 200 };
         run_engine_n(&RequestSpec::new("GET", &url), &mut samples, iterations).await;
         rows.push(samples.summary());
@@ -182,7 +196,10 @@ async fn body_size_section(origin: &str) {
 async fn proxy_section(origin: &str) {
     let dir = temp_dir("proxy");
     let store = CaptureStore::new(dir.join("captures.ndjson"));
-    let config = ProxyConfig { addr: ([127, 0, 0, 1], 0).into(), ..Default::default() };
+    let config = ProxyConfig {
+        addr: ([127, 0, 0, 1], 0).into(),
+        ..Default::default()
+    };
     let proxy = Proxy::new(config, &dir, store, SessionStore::new()).expect("proxy");
     let running = proxy.start().await.expect("start");
     let proxy_url = format!("http://{}", running.addr);
@@ -276,7 +293,9 @@ fn capture_store_section() {
         for i in 0..size {
             store.append(&sample_capture(i)).expect("append");
         }
-        let bytes = std::fs::metadata(store.path()).map(|m| m.len()).unwrap_or(0);
+        let bytes = std::fs::metadata(store.path())
+            .map(|m| m.len())
+            .unwrap_or(0);
 
         let mut list = Samples::new(format!(
             "ls --limit 30 · {size} captures ({})",
@@ -302,8 +321,14 @@ fn capture_store_section() {
             get_rows.push(get.summary());
         }
     }
-    print_table("Capture log reads · newest-first, stops at the limit", &list_rows);
-    print_table("Capture lookup by id · cost depends on how far back it is", &get_rows);
+    print_table(
+        "Capture log reads · newest-first, stops at the limit",
+        &list_rows,
+    );
+    print_table(
+        "Capture lookup by id · cost depends on how far back it is",
+        &get_rows,
+    );
     attribution_section();
 }
 
@@ -398,7 +423,10 @@ fn core_section() {
 
     let mut resolver = Resolver::new().with_vars(
         [
-            ("base_url".to_string(), "https://api.example.com".to_string()),
+            (
+                "base_url".to_string(),
+                "https://api.example.com".to_string(),
+            ),
             ("version".to_string(), "v2".to_string()),
             ("user_id".to_string(), "u_12345".to_string()),
         ]
@@ -428,7 +456,10 @@ fn core_section() {
             stats::ms(template_elapsed.as_secs_f64() * 1000.0 / iterations as f64)
         ),
     );
-    print_row("resolve string with no template", rate(iterations, plain_elapsed));
+    print_row(
+        "resolve string with no template",
+        rate(iterations, plain_elapsed),
+    );
 
     for items in [100usize, 10_000] {
         let document = sample_json(items);
@@ -515,8 +546,14 @@ fn vault_section() {
     let lookup = started.elapsed();
 
     println!("\nVault · Argon2id, 64 MiB / 3 passes");
-    print_row("create · derive key + write", stats::ms(create.as_secs_f64() * 1000.0));
-    print_row("unlock · derive key + decrypt", stats::ms(open.as_secs_f64() * 1000.0));
+    print_row(
+        "create · derive key + write",
+        stats::ms(create.as_secs_f64() * 1000.0),
+    );
+    print_row(
+        "unlock · derive key + decrypt",
+        stats::ms(open.as_secs_f64() * 1000.0),
+    );
     print_row("save 100 secrets", stats::ms(save.as_secs_f64() * 1000.0));
     print_row("lookup once unlocked", rate(iterations, lookup));
 }
@@ -581,7 +618,10 @@ async fn throughput(url: &str, proxy: Option<&str>, workers: usize, per_worker: 
 fn sample_capture(index: usize) -> Capture {
     let mut headers = FieldMap::default();
     headers.set("Accept", "application/json");
-    headers.set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
+    headers.set(
+        "User-Agent",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
     headers.set("Cookie", "session_id=abc123; theme=dark");
 
     Capture {

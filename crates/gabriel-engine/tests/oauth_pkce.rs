@@ -36,10 +36,7 @@ enum IdpBehaviour {
 }
 
 /// A token endpoint that checks the challenge against the verifier.
-async fn spawn_idp(
-    behaviour: IdpBehaviour,
-    recorded: Arc<Mutex<Recorded>>,
-) -> SocketAddr {
+async fn spawn_idp(behaviour: IdpBehaviour, recorded: Arc<Mutex<Recorded>>) -> SocketAddr {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     // One map per IdP address, shared with the simulated browser: the challenge
@@ -155,7 +152,10 @@ async fn drive_browser(url: String, idp: SocketAddr, tamper: Tamper) {
     let challenge = params["code_challenge"].clone();
 
     let code = "auth-code-abc".to_string();
-    issued_handle(idp).lock().unwrap().insert(code.clone(), challenge);
+    issued_handle(idp)
+        .lock()
+        .unwrap()
+        .insert(code.clone(), challenge);
 
     let state = match tamper {
         Tamper::None => params["state"].clone(),
@@ -167,7 +167,9 @@ async fn drive_browser(url: String, idp: SocketAddr, tamper: Tamper) {
 
     let target = redirect.trim_start_matches("http://");
     let (authority, path) = target.split_once('/').unwrap_or((target, ""));
-    let mut stream = tokio::net::TcpStream::connect(authority).await.expect("connect back");
+    let mut stream = tokio::net::TcpStream::connect(authority)
+        .await
+        .expect("connect back");
     let request = format!(
         "GET /{path}?code={code}&state={state} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n"
     );
@@ -219,11 +221,21 @@ async fn the_full_flow_exchanges_a_code_for_tokens() {
     assert_eq!(recorded.grant_type.as_deref(), Some("authorization_code"));
     assert_eq!(recorded.client_id.as_deref(), Some("gabriel-test-client"));
     // The verifier reached the token endpoint and nothing else.
-    let verifier = recorded.verifier.as_deref().expect("a code_verifier was sent");
-    assert!((43..=128).contains(&verifier.len()), "verifier length {}", verifier.len());
+    let verifier = recorded
+        .verifier
+        .as_deref()
+        .expect("a code_verifier was sent");
+    assert!(
+        (43..=128).contains(&verifier.len()),
+        "verifier length {}",
+        verifier.len()
+    );
     // The redirect the IdP was told matches the one the listener served.
     assert!(
-        recorded.redirect_uri.as_deref().is_some_and(|uri| uri.starts_with("http://127.0.0.1:")),
+        recorded
+            .redirect_uri
+            .as_deref()
+            .is_some_and(|uri| uri.starts_with("http://127.0.0.1:")),
         "redirect_uri was {:?}",
         recorded.redirect_uri
     );
@@ -240,7 +252,11 @@ async fn the_verifier_actually_matches_the_challenge_the_idp_saw() {
     let seen_challenge = Arc::new(Mutex::new(String::new()));
     let capture = seen_challenge.clone();
 
-    let options = FlowOptions { port: 0, open_browser: false, timeout: Duration::from_secs(10) };
+    let options = FlowOptions {
+        port: 0,
+        open_browser: false,
+        timeout: Duration::from_secs(10),
+    };
     let (url_tx, url_rx) = tokio::sync::oneshot::channel();
     let mut url_tx = Some(url_tx);
 
@@ -276,7 +292,11 @@ async fn a_callback_with_the_wrong_state_is_refused() {
     let idp = spawn_idp(IdpBehaviour::Correct, recorded.clone()).await;
     let config = config(idp);
 
-    let options = FlowOptions { port: 0, open_browser: false, timeout: Duration::from_secs(10) };
+    let options = FlowOptions {
+        port: 0,
+        open_browser: false,
+        timeout: Duration::from_secs(10),
+    };
     let (url_tx, url_rx) = tokio::sync::oneshot::channel();
     let mut url_tx = Some(url_tx);
 
@@ -306,7 +326,11 @@ async fn a_provider_error_on_the_exchange_is_reported_with_its_reason() {
     let idp = spawn_idp(IdpBehaviour::RejectExchange, recorded).await;
     let config = config(idp);
 
-    let options = FlowOptions { port: 0, open_browser: false, timeout: Duration::from_secs(10) };
+    let options = FlowOptions {
+        port: 0,
+        open_browser: false,
+        timeout: Duration::from_secs(10),
+    };
     let (url_tx, url_rx) = tokio::sync::oneshot::channel();
     let mut url_tx = Some(url_tx);
 
@@ -322,7 +346,10 @@ async fn a_provider_error_on_the_exchange_is_reported_with_its_reason() {
     let (result, _) = tokio::join!(flow, browser);
 
     let error = result.unwrap_err().to_string();
-    assert!(error.contains("invalid_grant"), "the provider's reason was lost: {error}");
+    assert!(
+        error.contains("invalid_grant"),
+        "the provider's reason was lost: {error}"
+    );
     assert!(error.contains("code_verifier mismatch"), "{error}");
 }
 
@@ -346,12 +373,18 @@ async fn waiting_for_a_browser_that_never_returns_times_out() {
     let idp = spawn_idp(IdpBehaviour::Correct, recorded).await;
     let config = config(idp);
 
-    let options =
-        FlowOptions { port: 0, open_browser: false, timeout: Duration::from_millis(300) };
+    let options = FlowOptions {
+        port: 0,
+        open_browser: false,
+        timeout: Duration::from_millis(300),
+    };
 
     let started = std::time::Instant::now();
     let result = oauth::authorization_code(&config, &options, |_| {}).await;
 
     assert!(result.unwrap_err().to_string().contains("timed out"));
-    assert!(started.elapsed() < Duration::from_secs(5), "it hung past the timeout");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "it hung past the timeout"
+    );
 }

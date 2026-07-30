@@ -87,7 +87,10 @@ impl CaptureFilter {
 
 impl CaptureStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        CaptureStore { path: path.into(), writer: Mutex::new(None) }
+        CaptureStore {
+            path: path.into(),
+            writer: Mutex::new(None),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -96,7 +99,10 @@ impl CaptureStore {
 
     pub fn append(&self, capture: &Capture) -> Result<()> {
         let line = serde_json::to_string(capture).expect("capture serializes");
-        let io = |source| StoreError::Io { path: self.path.clone(), source };
+        let io = |source| StoreError::Io {
+            path: self.path.clone(),
+            source,
+        };
 
         let mut writer = self.writer.lock().expect("write lock");
         if writer.is_none() {
@@ -167,9 +173,17 @@ impl CaptureStore {
         let mut file = match std::fs::File::open(&self.path) {
             Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(source) => return Err(StoreError::Io { path: self.path.clone(), source }),
+            Err(source) => {
+                return Err(StoreError::Io {
+                    path: self.path.clone(),
+                    source,
+                });
+            }
         };
-        let io = |source| StoreError::Io { path: self.path.clone(), source };
+        let io = |source| StoreError::Io {
+            path: self.path.clone(),
+            source,
+        };
 
         let mut remaining = file.seek(SeekFrom::End(0)).map_err(io)?;
         // Bytes read but not yet consumed: the head of a line whose start lies
@@ -229,7 +243,10 @@ impl CaptureStore {
         match std::fs::remove_file(&self.path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(StoreError::Io { path: self.path.clone(), source }),
+            Err(source) => Err(StoreError::Io {
+                path: self.path.clone(),
+                source,
+            }),
         }
     }
 }
@@ -258,7 +275,10 @@ fn open_append_private(path: &Path) -> std::io::Result<std::fs::File> {
     }
     #[cfg(not(unix))]
     {
-        std::fs::OpenOptions::new().create(true).append(true).open(path)
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
     }
 }
 
@@ -308,27 +328,46 @@ mod tests {
     #[test]
     fn appends_and_lists_newest_first() {
         let store = store();
-        store.append(&capture("a", "GET", "https://api.test/1", 200)).unwrap();
-        store.append(&capture("b", "GET", "https://api.test/2", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test/1", 200))
+            .unwrap();
+        store
+            .append(&capture("b", "GET", "https://api.test/2", 200))
+            .unwrap();
 
         let listed = store.list(&CaptureFilter::default(), 10).unwrap();
-        assert_eq!(listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["b", "a"]);
+        assert_eq!(
+            listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
     }
 
     #[test]
     fn an_empty_log_is_not_an_error() {
-        assert!(store().list(&CaptureFilter::default(), 10).unwrap().is_empty());
+        assert!(
+            store()
+                .list(&CaptureFilter::default(), 10)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn a_corrupt_line_does_not_hide_the_others() {
         let store = store();
-        store.append(&capture("a", "GET", "https://api.test/1", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test/1", 200))
+            .unwrap();
         {
-            let mut file = std::fs::OpenOptions::new().append(true).open(store.path()).unwrap();
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(store.path())
+                .unwrap();
             writeln!(file, "{{ this is not json").unwrap();
         }
-        store.append(&capture("b", "GET", "https://api.test/2", 200)).unwrap();
+        store
+            .append(&capture("b", "GET", "https://api.test/2", 200))
+            .unwrap();
 
         assert_eq!(store.list(&CaptureFilter::default(), 10).unwrap().len(), 2);
     }
@@ -336,17 +375,32 @@ mod tests {
     #[test]
     fn filters_by_host_method_and_status() {
         let store = store();
-        store.append(&capture("a", "GET", "https://api.test/ok", 200)).unwrap();
-        store.append(&capture("b", "POST", "https://api.test/bad", 500)).unwrap();
-        store.append(&capture("c", "GET", "https://cdn.other/img", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test/ok", 200))
+            .unwrap();
+        store
+            .append(&capture("b", "POST", "https://api.test/bad", 500))
+            .unwrap();
+        store
+            .append(&capture("c", "GET", "https://cdn.other/img", 200))
+            .unwrap();
 
-        let by_host = CaptureFilter { host: Some("api.test".into()), ..Default::default() };
+        let by_host = CaptureFilter {
+            host: Some("api.test".into()),
+            ..Default::default()
+        };
         assert_eq!(store.list(&by_host, 10).unwrap().len(), 2);
 
-        let by_method = CaptureFilter { method: Some("post".into()), ..Default::default() };
+        let by_method = CaptureFilter {
+            method: Some("post".into()),
+            ..Default::default()
+        };
         assert_eq!(store.list(&by_method, 10).unwrap()[0].id, "b");
 
-        let errors = CaptureFilter { status_min: Some(400), ..Default::default() };
+        let errors = CaptureFilter {
+            status_min: Some(400),
+            ..Default::default()
+        };
         assert_eq!(store.list(&errors, 10).unwrap()[0].id, "b");
     }
 
@@ -354,16 +408,23 @@ mod tests {
     fn limit_takes_the_most_recent() {
         let store = store();
         for i in 0..5 {
-            store.append(&capture(&i.to_string(), "GET", "https://api.test", 200)).unwrap();
+            store
+                .append(&capture(&i.to_string(), "GET", "https://api.test", 200))
+                .unwrap();
         }
         let listed = store.list(&CaptureFilter::default(), 2).unwrap();
-        assert_eq!(listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["4", "3"]);
+        assert_eq!(
+            listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            vec!["4", "3"]
+        );
     }
 
     #[test]
     fn get_accepts_a_unique_prefix() {
         let store = store();
-        store.append(&capture("cap_abc123", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("cap_abc123", "GET", "https://api.test", 200))
+            .unwrap();
         assert_eq!(store.get("cap_abc").unwrap().unwrap().id, "cap_abc123");
         assert!(store.get("nope").unwrap().is_none());
     }
@@ -375,9 +436,14 @@ mod tests {
     fn the_capture_log_is_not_world_readable() {
         use std::os::unix::fs::PermissionsExt as _;
         let store = store();
-        store.append(&capture("a", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test", 200))
+            .unwrap();
 
-        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
+        let mode = std::fs::metadata(store.path())
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o077, 0, "capture log readable by others: {mode:o}");
     }
 
@@ -390,9 +456,14 @@ mod tests {
         std::fs::write(store.path(), "").unwrap();
         std::fs::set_permissions(store.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
 
-        store.append(&capture("a", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test", 200))
+            .unwrap();
 
-        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
+        let mode = std::fs::metadata(store.path())
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o077, 0, "stale log left readable: {mode:o}");
     }
 
@@ -403,17 +474,34 @@ mod tests {
     fn reads_correctly_across_chunk_boundaries() {
         let store = store();
         for i in 0..400 {
-            store.append(&capture(&format!("cap-{i}"), "GET", "https://api.test/x", 200)).unwrap();
+            store
+                .append(&capture(
+                    &format!("cap-{i}"),
+                    "GET",
+                    "https://api.test/x",
+                    200,
+                ))
+                .unwrap();
         }
         let size = std::fs::metadata(store.path()).unwrap().len();
-        assert!(size > 64 * 1024, "log too small to cross a chunk: {size} bytes");
+        assert!(
+            size > 64 * 1024,
+            "log too small to cross a chunk: {size} bytes"
+        );
 
         // Newest first, and nothing skipped or duplicated at the seams.
         let listed = store.list(&CaptureFilter::default(), 5).unwrap();
         let ids: Vec<&str> = listed.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(ids, vec!["cap-399", "cap-398", "cap-397", "cap-396", "cap-395"]);
+        assert_eq!(
+            ids,
+            vec!["cap-399", "cap-398", "cap-397", "cap-396", "cap-395"]
+        );
 
-        assert_eq!(store.count().unwrap(), 400, "lines lost at a chunk boundary");
+        assert_eq!(
+            store.count().unwrap(),
+            400,
+            "lines lost at a chunk boundary"
+        );
 
         // The very first line of the file is only reached after a full walk.
         assert_eq!(store.get("cap-0").unwrap().unwrap().id, "cap-0");
@@ -425,7 +513,14 @@ mod tests {
     fn every_capture_is_returned_exactly_once() {
         let store = store();
         for i in 0..250 {
-            store.append(&capture(&format!("cap-{i}"), "GET", "https://api.test/x", 200)).unwrap();
+            store
+                .append(&capture(
+                    &format!("cap-{i}"),
+                    "GET",
+                    "https://api.test/x",
+                    200,
+                ))
+                .unwrap();
         }
         let all = store.list(&CaptureFilter::default(), usize::MAX).unwrap();
         let mut ids: Vec<String> = all.into_iter().map(|c| c.id).collect();
@@ -451,9 +546,13 @@ mod tests {
     fn a_single_capture_larger_than_one_chunk_is_read() {
         let store = store();
         let mut big = capture("huge", "POST", "https://api.test/upload", 200);
-        big.request.body = Some(CapturedBody::Text { text: "x".repeat(200_000) });
+        big.request.body = Some(CapturedBody::Text {
+            text: "x".repeat(200_000),
+        });
         store.append(&big).unwrap();
-        store.append(&capture("small", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("small", "GET", "https://api.test", 200))
+            .unwrap();
 
         assert_eq!(store.count().unwrap(), 2);
         assert_eq!(store.get("huge").unwrap().unwrap().id, "huge");
@@ -464,9 +563,13 @@ mod tests {
     #[test]
     fn appending_after_a_clear_writes_to_the_new_file() {
         let store = store();
-        store.append(&capture("first", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("first", "GET", "https://api.test", 200))
+            .unwrap();
         store.clear().unwrap();
-        store.append(&capture("second", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("second", "GET", "https://api.test", 200))
+            .unwrap();
 
         let listed = store.list(&CaptureFilter::default(), 10).unwrap();
         assert_eq!(listed.len(), 1, "append went to a stale handle");
@@ -477,19 +580,33 @@ mod tests {
     #[test]
     fn a_zero_limit_returns_nothing() {
         let store = store();
-        store.append(&capture("a", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test", 200))
+            .unwrap();
         assert!(store.list(&CaptureFilter::default(), 0).unwrap().is_empty());
     }
 
     #[test]
     fn filtering_still_finds_older_matches_beyond_the_limit() {
         let store = store();
-        store.append(&capture("old-error", "GET", "https://api.test/a", 500)).unwrap();
+        store
+            .append(&capture("old-error", "GET", "https://api.test/a", 500))
+            .unwrap();
         for i in 0..100 {
-            store.append(&capture(&format!("ok-{i}"), "GET", "https://api.test/b", 200)).unwrap();
+            store
+                .append(&capture(
+                    &format!("ok-{i}"),
+                    "GET",
+                    "https://api.test/b",
+                    200,
+                ))
+                .unwrap();
         }
 
-        let errors = CaptureFilter { status_min: Some(500), ..Default::default() };
+        let errors = CaptureFilter {
+            status_min: Some(500),
+            ..Default::default()
+        };
         let found = store.list(&errors, 30).unwrap();
         assert_eq!(found.len(), 1, "a match older than the limit was missed");
         assert_eq!(found[0].id, "old-error");
@@ -498,7 +615,9 @@ mod tests {
     #[test]
     fn clearing_removes_everything() {
         let store = store();
-        store.append(&capture("a", "GET", "https://api.test", 200)).unwrap();
+        store
+            .append(&capture("a", "GET", "https://api.test", 200))
+            .unwrap();
         store.clear().unwrap();
         assert_eq!(store.count().unwrap(), 0);
         // And clearing again is not an error.

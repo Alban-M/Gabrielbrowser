@@ -95,9 +95,8 @@ impl Cookie {
 
         // Max-Age wins over Expires per RFC 6265 §5.2.2.
         if let Some(seconds) = max_age {
-            cookie.expires_ms = Some(
-                (gabriel_core::now_ms() as i64 + seconds * 1000).max(0) as u64,
-            );
+            cookie.expires_ms =
+                Some((gabriel_core::now_ms() as i64 + seconds * 1000).max(0) as u64);
         }
 
         Some(cookie)
@@ -453,7 +452,9 @@ mod tests {
             "app.test",
             "/",
         );
-        let header = store.cookie_header("work", "app.test", "/dashboard", true).unwrap();
+        let header = store
+            .cookie_header("work", "app.test", "/dashboard", true)
+            .unwrap();
         assert!(header.contains("sid=abc"));
         assert!(header.contains("theme=dark"));
     }
@@ -469,7 +470,9 @@ mod tests {
             "sid=work"
         );
         assert_eq!(
-            store.cookie_header("personal", "app.test", "/", true).unwrap(),
+            store
+                .cookie_header("personal", "app.test", "/", true)
+                .unwrap(),
             "sid=personal"
         );
     }
@@ -478,7 +481,11 @@ mod tests {
     fn a_cookie_for_one_site_is_never_sent_to_another() {
         let mut store = SessionStore::new();
         store.record_set_cookies("work", ["sid=secret"], "bank.test", "/");
-        assert!(store.cookie_header("work", "evil.test", "/", true).is_none());
+        assert!(
+            store
+                .cookie_header("work", "evil.test", "/", true)
+                .is_none()
+        );
     }
 
     #[test]
@@ -487,7 +494,10 @@ mod tests {
         store.record_set_cookies("work", ["sid=old"], "app.test", "/");
         store.record_set_cookies("work", ["sid=new"], "app.test", "/");
         assert_eq!(store.cookie_count("work"), 1);
-        assert_eq!(store.cookie_header("work", "app.test", "/", true).unwrap(), "sid=new");
+        assert_eq!(
+            store.cookie_header("work", "app.test", "/", true).unwrap(),
+            "sid=new"
+        );
     }
 
     #[test]
@@ -503,7 +513,9 @@ mod tests {
         let mut store = SessionStore::new();
         store.record_set_cookies("s", ["a=root; Path=/"], "app.test", "/");
         store.record_set_cookies("s", ["b=deep; Path=/admin"], "app.test", "/");
-        let header = store.cookie_header("s", "app.test", "/admin/x", true).unwrap();
+        let header = store
+            .cookie_header("s", "app.test", "/admin/x", true)
+            .unwrap();
         assert!(header.starts_with("b=deep"), "{header}");
     }
 
@@ -573,7 +585,9 @@ mod tests {
 
         let reloaded = SessionStore::load(&path).unwrap();
         assert_eq!(
-            reloaded.cookie_header("work", "app.test", "/", true).unwrap(),
+            reloaded
+                .cookie_header("work", "app.test", "/", true)
+                .unwrap(),
             "sid=abc"
         );
     }

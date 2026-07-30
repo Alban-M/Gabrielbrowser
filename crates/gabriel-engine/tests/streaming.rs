@@ -76,7 +76,10 @@ async fn events_are_delivered_as_they_arrive() {
 
     let outcome = executor
         .execute_stream(&spec(addr), &mut ctx, &StreamLimits::default(), |event| {
-            recorder.lock().unwrap().push((event.data.clone(), start.elapsed()));
+            recorder
+                .lock()
+                .unwrap()
+                .push((event.data.clone(), start.elapsed()));
         })
         .await
         .expect("stream");
@@ -107,7 +110,10 @@ async fn the_event_limit_stops_the_stream_early() {
     )
     .await;
 
-    let limits = StreamLimits { max_events: 2, max_duration: Duration::from_secs(10) };
+    let limits = StreamLimits {
+        max_events: 2,
+        max_duration: Duration::from_secs(10),
+    };
     let mut executor = Executor::new();
     let mut resolver = Resolver::new();
     let mut sessions = SessionStore::new();
@@ -132,8 +138,10 @@ async fn a_stream_that_goes_quiet_times_out_rather_than_hanging() {
     )
     .await;
 
-    let limits =
-        StreamLimits { max_events: 100, max_duration: Duration::from_millis(400) };
+    let limits = StreamLimits {
+        max_events: 100,
+        max_duration: Duration::from_millis(400),
+    };
     let mut executor = Executor::new();
     let mut resolver = Resolver::new();
     let mut sessions = SessionStore::new();
@@ -146,7 +154,10 @@ async fn a_stream_that_goes_quiet_times_out_rather_than_hanging() {
         .expect("stream");
 
     assert_eq!(outcome.ended, StreamEnd::TimedOut);
-    assert!(started.elapsed() < Duration::from_secs(3), "the timeout was not honoured");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "the timeout was not honoured"
+    );
 }
 
 /// Regression: a healthy stream must outlive the request timeout.
@@ -168,7 +179,10 @@ async fn a_stream_is_not_cut_short_by_the_request_timeout() {
     // Far shorter than the stream takes to deliver everything.
     spec.settings.timeout_ms = 200;
 
-    let limits = StreamLimits { max_events: 10, max_duration: Duration::from_secs(5) };
+    let limits = StreamLimits {
+        max_events: 10,
+        max_duration: Duration::from_secs(5),
+    };
     let mut executor = Executor::new();
     let mut resolver = Resolver::new();
     let mut sessions = SessionStore::new();
@@ -190,7 +204,10 @@ async fn a_non_stream_response_is_reported_immediately() {
     let head = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 26\r\nConnection: close\r\n\r\n{\"error\":\"invalid_token\"}\n";
     let addr = serve(head, vec![], Duration::from_millis(10)).await;
 
-    let limits = StreamLimits { max_events: 100, max_duration: Duration::from_secs(30) };
+    let limits = StreamLimits {
+        max_events: 100,
+        max_duration: Duration::from_secs(30),
+    };
     let mut executor = Executor::new();
     let mut resolver = Resolver::new();
     let mut sessions = SessionStore::new();
@@ -205,7 +222,10 @@ async fn a_non_stream_response_is_reported_immediately() {
     assert_eq!(outcome.status, 401);
     assert_eq!(outcome.ended, StreamEnd::NotAStream);
     assert!(outcome.events.is_empty());
-    assert!(started.elapsed() < Duration::from_secs(3), "it waited on a non-stream");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "it waited on a non-stream"
+    );
 }
 
 #[tokio::test]
@@ -233,7 +253,10 @@ async fn named_events_and_json_payloads_survive_the_round_trip() {
 
     assert_eq!(outcome.events.len(), 3);
     assert_eq!(outcome.events[0].name.as_deref(), Some("token"));
-    assert_eq!(outcome.events[0].json().unwrap()["delta"], serde_json::json!("Hel"));
+    assert_eq!(
+        outcome.events[0].json().unwrap()["delta"],
+        serde_json::json!("Hel")
+    );
     assert_eq!(outcome.events[2].data, "[DONE]");
 }
 
@@ -275,5 +298,9 @@ async fn an_event_stream_accept_header_is_sent_by_default() {
         .filter(|(n, _)| n.eq_ignore_ascii_case("accept"))
         .map(|(_, v)| v)
         .collect();
-    assert_eq!(accepts, vec!["application/x-ndjson"], "the request's own Accept was overridden");
+    assert_eq!(
+        accepts,
+        vec!["application/x-ndjson"],
+        "the request's own Accept was overridden"
+    );
 }

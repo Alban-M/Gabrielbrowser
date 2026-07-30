@@ -261,7 +261,10 @@ mod tests {
             let mut events = parser.push(&bytes[..split]);
             events.extend(parser.push(&bytes[split..]));
             assert_eq!(events.len(), 2, "split at {split} lost an event");
-            assert_eq!(events[0].data, "caf\u{e9} \u{2615}", "split at {split} corrupted data");
+            assert_eq!(
+                events[0].data, "caf\u{e9} \u{2615}",
+                "split at {split} corrupted data"
+            );
             assert_eq!(events[1].data, "second");
         }
     }
@@ -272,7 +275,9 @@ mod tests {
         let events = parser.push(b"event: partial\ndata: arrived");
         assert!(events.is_empty(), "nothing dispatched without a blank line");
 
-        let leftover = parser.finish().expect("the partial event should be recoverable");
+        let leftover = parser
+            .finish()
+            .expect("the partial event should be recoverable");
         assert_eq!(leftover.name.as_deref(), Some("partial"));
         assert_eq!(leftover.data, "arrived");
     }

@@ -62,8 +62,12 @@ impl CapturedBody {
             return None;
         }
         Some(match std::str::from_utf8(bytes) {
-            Ok(text) => CapturedBody::Text { text: text.to_string() },
-            Err(_) => CapturedBody::Base64 { data: crate::b64_encode(bytes) },
+            Ok(text) => CapturedBody::Text {
+                text: text.to_string(),
+            },
+            Err(_) => CapturedBody::Base64 {
+                data: crate::b64_encode(bytes),
+            },
         })
     }
 
@@ -174,16 +178,22 @@ impl Capture {
             match lower.as_str() {
                 "cookie" if !opts.inline_cookies => {
                     // The cookies stay in the session store; the file refers to it.
-                    auth.get_or_insert(Auth::Session { session: self.session.clone() });
+                    auth.get_or_insert(Auth::Session {
+                        session: self.session.clone(),
+                    });
                 }
                 "authorization" => {
                     if let Some(token) = value.strip_prefix("Bearer ").map(str::trim) {
                         if opts.inline_token {
-                            auth = Some(Auth::Bearer { token: token.to_string() });
+                            auth = Some(Auth::Bearer {
+                                token: token.to_string(),
+                            });
                         } else {
                             let name = suggest_secret_name(&self.request.url);
                             secrets.push((name.clone(), token.to_string()));
-                            auth = Some(Auth::Bearer { token: format!("{{{{secret:{name}}}}}") });
+                            auth = Some(Auth::Bearer {
+                                token: format!("{{{{secret:{name}}}}}"),
+                            });
                         }
                     } else if opts.inline_token {
                         spec.headers.insert(key, value);
@@ -209,7 +219,12 @@ impl Capture {
             page: self.page.clone(),
         });
 
-        Promotion { spec, secrets, vars, session: self.session.clone() }
+        Promotion {
+            spec,
+            secrets,
+            vars,
+            session: self.session.clone(),
+        }
     }
 
     pub fn status(&self) -> Option<u16> {
@@ -231,7 +246,9 @@ impl Capture {
 fn body_from_capture(body: &CapturedBody, content_type: &str) -> Body {
     let ct = content_type.to_ascii_lowercase();
     match body.as_text() {
-        Some(text) if ct.contains("json") => Body::Json { content: text.to_string() },
+        Some(text) if ct.contains("json") => Body::Json {
+            content: text.to_string(),
+        },
         Some(text) if ct.contains("x-www-form-urlencoded") => {
             let fields: BTreeMap<String, String> = text
                 .split('&')
@@ -243,7 +260,9 @@ fn body_from_capture(body: &CapturedBody, content_type: &str) -> Body {
                 .collect();
             Body::Form { fields }
         }
-        Some(text) if ct.contains("graphql") => Body::Json { content: text.to_string() },
+        Some(text) if ct.contains("graphql") => Body::Json {
+            content: text.to_string(),
+        },
         Some(text) => Body::Text {
             content: text.to_string(),
             content_type: (!ct.is_empty()).then(|| content_type.to_string()),
@@ -301,10 +320,18 @@ fn suggest_secret_name(url: &str) -> String {
     let host = split_origin(url)
         .map(|(o, _)| o)
         .unwrap_or_else(|| url.to_string());
-    let host = host.trim_start_matches("https://").trim_start_matches("http://");
+    let host = host
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
     let slug: String = host
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("{}_token", slug.trim_matches('_'))
 }
@@ -315,18 +342,16 @@ fn percent_decode(input: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
-            b'%' if i + 2 < bytes.len() => {
-                match u8::from_str_radix(&input[i + 1..i + 3], 16) {
-                    Ok(byte) => {
-                        out.push(byte);
-                        i += 3;
-                    }
-                    Err(_) => {
-                        out.push(bytes[i]);
-                        i += 1;
-                    }
+            b'%' if i + 2 < bytes.len() => match u8::from_str_radix(&input[i + 1..i + 3], 16) {
+                Ok(byte) => {
+                    out.push(byte);
+                    i += 3;
                 }
-            }
+                Err(_) => {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            },
             b'+' => {
                 out.push(b' ');
                 i += 1;
@@ -359,7 +384,9 @@ mod tests {
                     .iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect(),
-                body: body.map(|b| CapturedBody::Text { text: b.to_string() }),
+                body: body.map(|b| CapturedBody::Text {
+                    text: b.to_string(),
+                }),
             },
             response: None,
         }
@@ -367,14 +394,22 @@ mod tests {
 
     #[test]
     fn promotion_moves_cookies_out_of_the_file_and_into_the_session() {
-        let capture = capture_with(&[("Cookie", "sid=abc123"), ("Accept", "application/json")], None);
+        let capture = capture_with(
+            &[("Cookie", "sid=abc123"), ("Accept", "application/json")],
+            None,
+        );
         let promotion = capture.promote(&PromoteOptions::default());
 
         let text = toml::to_string_pretty(&promotion.spec).unwrap();
-        assert!(!text.contains("abc123"), "cookie leaked into the file:\n{text}");
+        assert!(
+            !text.contains("abc123"),
+            "cookie leaked into the file:\n{text}"
+        );
         assert_eq!(
             promotion.spec.auth,
-            Some(Auth::Session { session: Some("work".into()) })
+            Some(Auth::Session {
+                session: Some("work".into())
+            })
         );
         assert_eq!(promotion.session.as_deref(), Some("work"));
     }
@@ -384,23 +419,36 @@ mod tests {
         let capture = capture_with(&[("Authorization", "Bearer sk-live-xyz")], None);
         let promotion = capture.promote(&PromoteOptions::default());
 
-        assert_eq!(promotion.secrets, vec![("api_test_token".to_string(), "sk-live-xyz".to_string())]);
+        assert_eq!(
+            promotion.secrets,
+            vec![("api_test_token".to_string(), "sk-live-xyz".to_string())]
+        );
         assert_eq!(
             promotion.spec.auth,
-            Some(Auth::Bearer { token: "{{secret:api_test_token}}".into() })
+            Some(Auth::Bearer {
+                token: "{{secret:api_test_token}}".into()
+            })
         );
         let text = toml::to_string_pretty(&promotion.spec).unwrap();
-        assert!(!text.contains("sk-live-xyz"), "token leaked into the file:\n{text}");
+        assert!(
+            !text.contains("sk-live-xyz"),
+            "token leaked into the file:\n{text}"
+        );
     }
 
     #[test]
     fn promotion_can_inline_credentials_when_asked() {
         let capture = capture_with(&[("Authorization", "Bearer sk-live-xyz")], None);
-        let opts = PromoteOptions { inline_token: true, ..Default::default() };
+        let opts = PromoteOptions {
+            inline_token: true,
+            ..Default::default()
+        };
         let promotion = capture.promote(&opts);
         assert_eq!(
             promotion.spec.auth,
-            Some(Auth::Bearer { token: "sk-live-xyz".into() })
+            Some(Auth::Bearer {
+                token: "sk-live-xyz".into()
+            })
         );
         assert!(promotion.secrets.is_empty());
     }
@@ -422,7 +470,11 @@ mod tests {
     #[test]
     fn promotion_drops_hop_by_hop_headers() {
         let capture = capture_with(
-            &[("Host", "api.test"), ("Content-Length", "17"), ("Accept", "*/*")],
+            &[
+                ("Host", "api.test"),
+                ("Content-Length", "17"),
+                ("Accept", "*/*"),
+            ],
             None,
         );
         let spec = capture.promote(&PromoteOptions::default()).spec;
@@ -435,7 +487,12 @@ mod tests {
     fn json_bodies_are_promoted_as_json() {
         let capture = capture_with(&[("Content-Type", "application/json")], Some(r#"{"a":1}"#));
         let spec = capture.promote(&PromoteOptions::default()).spec;
-        assert_eq!(spec.body, Some(Body::Json { content: r#"{"a":1}"#.into() }));
+        assert_eq!(
+            spec.body,
+            Some(Body::Json {
+                content: r#"{"a":1}"#.into()
+            })
+        );
     }
 
     #[test]

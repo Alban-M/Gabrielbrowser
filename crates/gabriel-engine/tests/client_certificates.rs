@@ -33,11 +33,18 @@ fn authority() -> Authority {
     dn.push(DnType::CommonName, "Gabriel mTLS test CA");
     params.distinguished_name = dn;
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::DigitalSignature];
+    params.key_usages = vec![
+        KeyUsagePurpose::KeyCertSign,
+        KeyUsagePurpose::DigitalSignature,
+    ];
 
     let cert = params.self_signed(&key).expect("self-signed ca");
     let cert_der = cert.der().clone();
-    Authority { params, key, cert_der }
+    Authority {
+        params,
+        key,
+        cert_der,
+    }
 }
 
 /// A leaf certificate signed by the CA, returned as (DER cert, DER key, PEM bundle).
@@ -222,7 +229,13 @@ async fn a_certificate_read_from_a_file_works_too() {
         executor.execute(&spec, &mut ctx).await
     };
 
-    assert_eq!(outcome.expect("handshake with a file-based cert").response.status, 200);
+    assert_eq!(
+        outcome
+            .expect("handshake with a file-based cert")
+            .response
+            .status,
+        200
+    );
 }
 
 #[tokio::test]
@@ -244,7 +257,10 @@ async fn a_malformed_certificate_is_reported_rather_than_ignored() {
 
     let error = {
         let mut ctx = RunContext::new(&mut resolver, &mut sessions);
-        executor.execute(&spec, &mut ctx).await.expect_err("should refuse to continue")
+        executor
+            .execute(&spec, &mut ctx)
+            .await
+            .expect_err("should refuse to continue")
     };
     let message = error.to_string();
     assert!(

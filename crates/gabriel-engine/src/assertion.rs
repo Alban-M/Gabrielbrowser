@@ -4,9 +4,9 @@
 //! response, so the same file that documents a call also checks it — and the
 //! same file runs in CI.
 
+use gabriel_core::jsonpath;
 use gabriel_core::model::{AssertOp, AssertTarget, Assertion};
 use gabriel_core::response::ExecutedResponse;
-use gabriel_core::jsonpath;
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,10 +31,7 @@ pub fn evaluate(assertion: &Assertion, response: &ExecutedResponse) -> Assertion
             .map(|v| Value::String(v.to_string())),
         AssertTarget::Body => match &assertion.path {
             Some(path) => match response.json() {
-                Some(json) => jsonpath::select(&json, path)
-                    .ok()
-                    .flatten()
-                    .cloned(),
+                Some(json) => jsonpath::select(&json, path).ok().flatten().cloned(),
                 None => None,
             },
             None => Some(Value::String(response.text().into_owned())),
@@ -53,7 +50,10 @@ pub fn evaluate(assertion: &Assertion, response: &ExecutedResponse) -> Assertion
     AssertionOutcome {
         description: describe(assertion, expected.as_ref()),
         passed,
-        actual: actual.as_ref().map(render).unwrap_or_else(|| "<missing>".to_string()),
+        actual: actual
+            .as_ref()
+            .map(render)
+            .unwrap_or_else(|| "<missing>".to_string()),
     }
 }
 
@@ -150,19 +150,37 @@ mod tests {
             http_version: "HTTP/2".into(),
             headers,
             body: body.as_bytes().to_vec(),
-            timings: Timings { ttfb_ms: 10, total_ms: 25 },
+            timings: Timings {
+                ttfb_ms: 10,
+                total_ms: 25,
+            },
             final_url: "https://api.test/users".into(),
         }
     }
 
-    fn assertion(target: AssertTarget, path: Option<&str>, op: AssertOp, value: Option<toml::Value>) -> Assertion {
-        Assertion { target, path: path.map(str::to_string), op, value }
+    fn assertion(
+        target: AssertTarget,
+        path: Option<&str>,
+        op: AssertOp,
+        value: Option<toml::Value>,
+    ) -> Assertion {
+        Assertion {
+            target,
+            path: path.map(str::to_string),
+            op,
+            value,
+        }
     }
 
     #[test]
     fn status_equality() {
         let outcome = evaluate(
-            &assertion(AssertTarget::Status, None, AssertOp::Eq, Some(toml::Value::Integer(200))),
+            &assertion(
+                AssertTarget::Status,
+                None,
+                AssertOp::Eq,
+                Some(toml::Value::Integer(200)),
+            ),
             &response(200, "{}"),
         );
         assert!(outcome.passed);
@@ -172,7 +190,12 @@ mod tests {
     #[test]
     fn a_failure_reports_what_was_actually_seen() {
         let outcome = evaluate(
-            &assertion(AssertTarget::Status, None, AssertOp::Eq, Some(toml::Value::Integer(200))),
+            &assertion(
+                AssertTarget::Status,
+                None,
+                AssertOp::Eq,
+                Some(toml::Value::Integer(200)),
+            ),
             &response(500, "{}"),
         );
         assert!(!outcome.passed);
@@ -211,41 +234,85 @@ mod tests {
     #[test]
     fn exists_and_missing_need_no_expected_value() {
         let response = response(200, r#"{"id":1}"#);
-        assert!(evaluate(&assertion(AssertTarget::Body, Some("id"), AssertOp::Exists, None), &response).passed);
-        assert!(evaluate(&assertion(AssertTarget::Body, Some("nope"), AssertOp::Missing, None), &response).passed);
-        assert!(!evaluate(&assertion(AssertTarget::Body, Some("nope"), AssertOp::Exists, None), &response).passed);
+        assert!(
+            evaluate(
+                &assertion(AssertTarget::Body, Some("id"), AssertOp::Exists, None),
+                &response
+            )
+            .passed
+        );
+        assert!(
+            evaluate(
+                &assertion(AssertTarget::Body, Some("nope"), AssertOp::Missing, None),
+                &response
+            )
+            .passed
+        );
+        assert!(
+            !evaluate(
+                &assertion(AssertTarget::Body, Some("nope"), AssertOp::Exists, None),
+                &response
+            )
+            .passed
+        );
     }
 
     #[test]
     fn numeric_comparisons() {
         let response = response(200, "{}");
-        assert!(evaluate(
-            &assertion(AssertTarget::DurationMs, None, AssertOp::Lt, Some(toml::Value::Integer(1000))),
-            &response
-        )
-        .passed);
-        assert!(!evaluate(
-            &assertion(AssertTarget::DurationMs, None, AssertOp::Gt, Some(toml::Value::Integer(1000))),
-            &response
-        )
-        .passed);
+        assert!(
+            evaluate(
+                &assertion(
+                    AssertTarget::DurationMs,
+                    None,
+                    AssertOp::Lt,
+                    Some(toml::Value::Integer(1000))
+                ),
+                &response
+            )
+            .passed
+        );
+        assert!(
+            !evaluate(
+                &assertion(
+                    AssertTarget::DurationMs,
+                    None,
+                    AssertOp::Gt,
+                    Some(toml::Value::Integer(1000))
+                ),
+                &response
+            )
+            .passed
+        );
     }
 
     #[test]
     fn contains_works_on_the_whole_body() {
         let response = response(200, r#"{"message":"created"}"#);
-        assert!(evaluate(
-            &assertion(AssertTarget::Body, None, AssertOp::Contains, Some(toml::Value::String("created".into()))),
-            &response
-        )
-        .passed);
+        assert!(
+            evaluate(
+                &assertion(
+                    AssertTarget::Body,
+                    None,
+                    AssertOp::Contains,
+                    Some(toml::Value::String("created".into()))
+                ),
+                &response
+            )
+            .passed
+        );
     }
 
     #[test]
     fn a_string_does_not_equal_a_number() {
         let response = response(200, "{}");
         let outcome = evaluate(
-            &assertion(AssertTarget::Status, None, AssertOp::Eq, Some(toml::Value::String("200".into()))),
+            &assertion(
+                AssertTarget::Status,
+                None,
+                AssertOp::Eq,
+                Some(toml::Value::String("200".into())),
+            ),
             &response,
         );
         assert!(!outcome.passed, "type confusion would hide real failures");
@@ -255,7 +322,12 @@ mod tests {
     fn a_missing_body_path_fails_rather_than_erroring() {
         let response = response(200, "not json at all");
         let outcome = evaluate(
-            &assertion(AssertTarget::Body, Some("id"), AssertOp::Eq, Some(toml::Value::Integer(1))),
+            &assertion(
+                AssertTarget::Body,
+                Some("id"),
+                AssertOp::Eq,
+                Some(toml::Value::Integer(1)),
+            ),
             &response,
         );
         assert!(!outcome.passed);

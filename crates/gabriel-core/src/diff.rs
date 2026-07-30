@@ -23,15 +23,28 @@ pub enum ChangeKind {
 
 impl Change {
     fn added(path: impl Into<String>, after: &Value) -> Self {
-        Change { path: path.into(), kind: ChangeKind::Added { after: render(after) } }
+        Change {
+            path: path.into(),
+            kind: ChangeKind::Added {
+                after: render(after),
+            },
+        }
     }
     fn removed(path: impl Into<String>, before: &Value) -> Self {
-        Change { path: path.into(), kind: ChangeKind::Removed { before: render(before) } }
+        Change {
+            path: path.into(),
+            kind: ChangeKind::Removed {
+                before: render(before),
+            },
+        }
     }
     fn changed(path: impl Into<String>, before: &Value, after: &Value) -> Self {
         Change {
             path: path.into(),
-            kind: ChangeKind::Changed { before: render(before), after: render(after) },
+            kind: ChangeKind::Changed {
+                before: render(before),
+                after: render(after),
+            },
         }
     }
 }
@@ -79,7 +92,11 @@ fn walk(path: &str, before: &Value, after: &Value, out: &mut Vec<Change>) {
             }
         }
         (a, b) if a == b => {}
-        (a, b) => out.push(Change::changed(if path.is_empty() { "$" } else { path }, a, b)),
+        (a, b) => out.push(Change::changed(
+            if path.is_empty() { "$" } else { path },
+            a,
+            b,
+        )),
     }
 }
 
@@ -169,11 +186,16 @@ fn diff_headers(before: &FieldMap, after: &FieldMap) -> Vec<Change> {
             Some(other) if other == value => {}
             Some(other) => changes.push(Change {
                 path: key.to_string(),
-                kind: ChangeKind::Changed { before: value.to_string(), after: other.to_string() },
+                kind: ChangeKind::Changed {
+                    before: value.to_string(),
+                    after: other.to_string(),
+                },
             }),
             None => changes.push(Change {
                 path: key.to_string(),
-                kind: ChangeKind::Removed { before: value.to_string() },
+                kind: ChangeKind::Removed {
+                    before: value.to_string(),
+                },
             }),
         }
     }
@@ -181,7 +203,9 @@ fn diff_headers(before: &FieldMap, after: &FieldMap) -> Vec<Change> {
         if interesting(key) && !before.contains_key(key) {
             changes.push(Change {
                 path: key.to_string(),
-                kind: ChangeKind::Added { after: value.to_string() },
+                kind: ChangeKind::Added {
+                    after: value.to_string(),
+                },
             });
         }
     }
@@ -204,11 +228,25 @@ mod tests {
 
         assert!(changes.contains(&Change {
             path: "id".into(),
-            kind: ChangeKind::Changed { before: "1".into(), after: "2".into() }
+            kind: ChangeKind::Changed {
+                before: "1".into(),
+                after: "2".into()
+            }
         }));
-        assert!(changes.iter().any(|c| c.path == "gone" && matches!(c.kind, ChangeKind::Removed { .. })));
-        assert!(changes.iter().any(|c| c.path == "new" && matches!(c.kind, ChangeKind::Added { .. })));
-        assert!(!changes.iter().any(|c| c.path == "name"), "unchanged field reported");
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.path == "gone" && matches!(c.kind, ChangeKind::Removed { .. }))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.path == "new" && matches!(c.kind, ChangeKind::Added { .. }))
+        );
+        assert!(
+            !changes.iter().any(|c| c.path == "name"),
+            "unchanged field reported"
+        );
     }
 
     #[test]
@@ -224,7 +262,11 @@ mod tests {
         let after = json!({ "items": [{ "id": 1 }, { "id": 99 }, { "id": 3 }] });
         let changes = diff_json(&before, &after);
         assert!(changes.iter().any(|c| c.path == "items[1].id"));
-        assert!(changes.iter().any(|c| c.path == "items[2]" && matches!(c.kind, ChangeKind::Added { .. })));
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.path == "items[2]" && matches!(c.kind, ChangeKind::Added { .. }))
+        );
     }
 
     fn response(status: u16, headers: &[(&str, &str)], body: &str) -> ExecutedResponse {
@@ -232,25 +274,51 @@ mod tests {
             status,
             status_text: String::new(),
             http_version: "HTTP/1.1".into(),
-            headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             body: body.as_bytes().to_vec(),
-            timings: Timings { ttfb_ms: 1, total_ms: 2 },
+            timings: Timings {
+                ttfb_ms: 1,
+                total_ms: 2,
+            },
             final_url: "https://api.test".into(),
         }
     }
 
     #[test]
     fn response_diff_ignores_volatile_headers() {
-        let a = response(200, &[("Date", "Mon"), ("Content-Type", "application/json")], "{}");
-        let b = response(200, &[("Date", "Tue"), ("Content-Type", "application/json")], "{}");
+        let a = response(
+            200,
+            &[("Date", "Mon"), ("Content-Type", "application/json")],
+            "{}",
+        );
+        let b = response(
+            200,
+            &[("Date", "Tue"), ("Content-Type", "application/json")],
+            "{}",
+        );
         let diff = diff_responses(&a, &b);
-        assert!(diff.is_empty(), "volatile header reported: {:?}", diff.headers);
+        assert!(
+            diff.is_empty(),
+            "volatile header reported: {:?}",
+            diff.headers
+        );
     }
 
     #[test]
     fn response_diff_catches_status_and_body() {
-        let a = response(200, &[("Content-Type", "application/json")], r#"{"ok":true}"#);
-        let b = response(500, &[("Content-Type", "application/json")], r#"{"ok":false}"#);
+        let a = response(
+            200,
+            &[("Content-Type", "application/json")],
+            r#"{"ok":true}"#,
+        );
+        let b = response(
+            500,
+            &[("Content-Type", "application/json")],
+            r#"{"ok":false}"#,
+        );
         let diff = diff_responses(&a, &b);
         assert_eq!(diff.status, Some((200, 500)));
         assert_eq!(diff.body.len(), 1);

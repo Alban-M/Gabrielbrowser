@@ -79,21 +79,36 @@ mod tests {
 
     #[test]
     fn other_methods_are_explicit() {
-        let command = to_curl(&request("delete", "https://api.test/users/1"), &plain(), false);
+        let command = to_curl(
+            &request("delete", "https://api.test/users/1"),
+            &plain(),
+            false,
+        );
         assert!(command.starts_with("curl -X DELETE "), "{command}");
     }
 
     #[test]
     fn headers_and_body_are_included() {
         let mut req = request("POST", "https://api.test/users");
-        req.headers.push(("Content-Type".into(), "application/json".into()));
-        req.headers.push(("Accept".into(), "application/json".into()));
+        req.headers
+            .push(("Content-Type".into(), "application/json".into()));
+        req.headers
+            .push(("Accept".into(), "application/json".into()));
         req.body = Some(r#"{"name":"ada"}"#.into());
 
         let command = to_curl(&req, &plain(), false);
-        assert!(command.contains("-H 'Content-Type: application/json'"), "{command}");
-        assert!(command.contains("-H 'Accept: application/json'"), "{command}");
-        assert!(command.contains(r#"--data-raw '{"name":"ada"}'"#), "{command}");
+        assert!(
+            command.contains("-H 'Content-Type: application/json'"),
+            "{command}"
+        );
+        assert!(
+            command.contains("-H 'Accept: application/json'"),
+            "{command}"
+        );
+        assert!(
+            command.contains(r#"--data-raw '{"name":"ada"}'"#),
+            "{command}"
+        );
     }
 
     #[test]
@@ -104,7 +119,10 @@ mod tests {
         req.headers.push(("X-Keep".into(), "yes".into()));
 
         let command = to_curl(&req, &plain(), false);
-        assert!(!command.to_lowercase().contains("content-length"), "{command}");
+        assert!(
+            !command.to_lowercase().contains("content-length"),
+            "{command}"
+        );
         assert!(!command.to_lowercase().contains("-h 'host"), "{command}");
         assert!(command.contains("X-Keep"), "{command}");
     }
@@ -114,13 +132,17 @@ mod tests {
     #[test]
     fn secrets_are_masked_by_default() {
         let mut req = request("GET", "https://api.test/?key=sk-live-SECRET");
-        req.headers.push(("Authorization".into(), "Bearer sk-live-SECRET".into()));
+        req.headers
+            .push(("Authorization".into(), "Bearer sk-live-SECRET".into()));
         req.body = Some(r#"{"token":"sk-live-SECRET"}"#.into());
 
         let redactor = Redactor::new(vec!["sk-live-SECRET".to_string()]);
         let command = to_curl(&req, &redactor, false);
 
-        assert!(!command.contains("sk-live-SECRET"), "a secret survived:\n{command}");
+        assert!(
+            !command.contains("sk-live-SECRET"),
+            "a secret survived:\n{command}"
+        );
         assert_eq!(command.matches("redacted").count(), 3, "{command}");
     }
 
@@ -153,7 +175,11 @@ mod tests {
             "line one\nline two",
             "; touch /tmp/gabriel-injection-check",
         ] {
-            assert_eq!(shell_roundtrip(&quote(hostile)), hostile, "shell altered {hostile:?}");
+            assert_eq!(
+                shell_roundtrip(&quote(hostile)),
+                hostile,
+                "shell altered {hostile:?}"
+            );
         }
         // And nothing was executed along the way.
         assert!(!std::path::Path::new("/tmp/gabriel-injection-check").exists());
@@ -166,7 +192,10 @@ mod tests {
         req.body = Some(body.to_string());
 
         let command = to_curl(&req, &plain(), false);
-        let arg = command.split_once("--data-raw ").expect("data flag present").1;
+        let arg = command
+            .split_once("--data-raw ")
+            .expect("data flag present")
+            .1;
         assert_eq!(shell_roundtrip(arg), body);
     }
 
@@ -181,10 +210,14 @@ mod tests {
     #[test]
     fn multiline_form_uses_backslash_continuations() {
         let mut req = request("POST", "https://api.test/x");
-        req.headers.push(("Accept".into(), "application/json".into()));
+        req.headers
+            .push(("Accept".into(), "application/json".into()));
         let command = to_curl(&req, &plain(), true);
 
-        assert!(command.contains(" \\\n  "), "expected continuations:\n{command}");
+        assert!(
+            command.contains(" \\\n  "),
+            "expected continuations:\n{command}"
+        );
         // Each continuation must be the last thing on its line for the shell to
         // join them.
         for line in command.lines().take(command.lines().count() - 1) {
