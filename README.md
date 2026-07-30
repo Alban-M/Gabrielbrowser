@@ -26,6 +26,7 @@ gabriel curl <name>                # print the request as a curl command
 gabriel ws <url|name> --send '…'    # open a socket, send frames, watch replies
 gabriel har import <file>          # bring in traffic from DevTools/Charles/Proxyman
 gabriel har export --out t.har     # take it back out again
+gabriel run --all --junit r.xml    # run the collection, report to CI
 ```
 
 The promotion step is the point. A captured request becomes a file with **no
@@ -120,7 +121,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 282 tests
+cargo test          # 296 tests
 cargo build --release
 ```
 

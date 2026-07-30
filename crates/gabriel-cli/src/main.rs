@@ -11,6 +11,7 @@
 
 mod codegen;
 mod output;
+mod report;
 mod support;
 
 use anyhow::{Context, Result, bail};
@@ -217,6 +218,14 @@ struct RunArgs {
     /// Stop following after this many seconds.
     #[arg(long, default_value_t = 30, requires = "stream")]
     stream_timeout: u64,
+
+    /// Write a JUnit XML report, for CI to render.
+    #[arg(long, value_name = "FILE")]
+    junit: Option<PathBuf>,
+
+    /// Write a self-contained HTML report, for people to read.
+    #[arg(long, value_name = "FILE")]
+    html: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -1034,6 +1043,9 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
     let mut executor = Executor::new();
     let mut all_passed = true;
     let mut errors = 0usize;
+    let wants_report = args.junit.is_some() || args.html.is_some();
+    let mut cases: Vec<report::CaseResult> = Vec::new();
+    let started_ms = gabriel_core::now_ms();
 
     // Streaming is a single-request mode: following two event streams at once
     // and interleaving their output would be unreadable.
@@ -1133,12 +1145,47 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
             Ok(outcome) => outcome,
             Err(error) if args.all => {
                 eprintln!("{} {error:#}", style.red("error:"));
+                if wants_report {
+                    cases.push(report::CaseResult {
+                        id: entry.id.clone(),
+                        method: spec.method.clone(),
+                        url: spec.url.clone(),
+                        status: None,
+                        duration_ms: 0,
+                        outcome: report::CaseOutcome::Errored(format!("{error:#}")),
+                        assertions: Vec::new(),
+                    });
+                }
                 errors += 1;
                 all_passed = false;
                 continue;
             }
             Err(error) => return Err(error),
         };
+
+        if wants_report {
+            cases.push(report::CaseResult {
+                id: entry.id.clone(),
+                method: outcome.sent.method.clone(),
+                url: outcome.sent.url.clone(),
+                status: Some(outcome.response.status),
+                duration_ms: outcome.response.timings.total_ms,
+                outcome: if outcome.assertions_passed() {
+                    report::CaseOutcome::Passed
+                } else {
+                    report::CaseOutcome::Failed
+                },
+                assertions: outcome
+                    .assertions
+                    .iter()
+                    .map(|a| report::AssertionLine {
+                        description: a.description.clone(),
+                        passed: a.passed,
+                        actual: a.actual.clone(),
+                    })
+                    .collect(),
+            });
+        }
 
         let redactor = if args.show_secrets {
             Redactor::default()
@@ -1160,6 +1207,37 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
     }
 
     sessions.save()?;
+
+    if wants_report {
+        let run = report::RunReport {
+            collection: collection
+                .manifest()
+                .name
+                .clone()
+                .unwrap_or_else(|| "collection".to_string()),
+            environment: env_name.clone(),
+            started_ms,
+            cases,
+        };
+        // A report is an artifact that outlives the run; the same redaction that
+        // protects the terminal protects it.
+        let redactor = if args.show_secrets {
+            Redactor::default()
+        } else {
+            Redactor::new(resolver.used_secrets())
+        };
+
+        if let Some(path) = &args.junit {
+            std::fs::write(path, report::to_junit(&run, &redactor))
+                .with_context(|| format!("writing {}", path.display()))?;
+            eprintln!("{} {}", style.dim("junit report"), path.display());
+        }
+        if let Some(path) = &args.html {
+            std::fs::write(path, report::to_html(&run, &redactor))
+                .with_context(|| format!("writing {}", path.display()))?;
+            eprintln!("{} {}", style.dim("html report"), path.display());
+        }
+    }
 
     if errors > 0 {
         // Report every failure that was skipped over, then fail the run.
