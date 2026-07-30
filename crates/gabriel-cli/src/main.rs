@@ -88,6 +88,10 @@ enum Command {
     #[command(subcommand)]
     Session(SessionCommand),
 
+    /// Import or export captured traffic as HAR.
+    #[command(subcommand)]
+    Har(HarCommand),
+
     /// Decode and inspect a JWT locally, without sending it anywhere.
     Jwt {
         /// The token, `-` to read stdin, or omitted with --capture.
@@ -264,6 +268,37 @@ struct PromoteArgs {
     /// that already exists stops rather than discarding what is there.
     #[arg(long)]
     force: bool,
+}
+
+#[derive(Subcommand)]
+enum HarCommand {
+    /// Write captures to a HAR file that other tools can read.
+    Export {
+        /// Where to write. Omit for stdout.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        method: Option<String>,
+        #[arg(long)]
+        status: Option<u16>,
+        #[arg(long)]
+        session: Option<String>,
+        /// How many captures to include, newest first.
+        #[arg(short, long, default_value_t = 1000)]
+        limit: usize,
+    },
+    /// Read a HAR file from DevTools, Charles, Proxyman or Firefox into the
+    /// capture log, where its requests can be promoted and replayed.
+    Import {
+        file: PathBuf,
+        /// File the imported captures under this session name.
+        #[arg(short, long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -481,6 +516,8 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             Ok(Outcome::Success)
         }
 
+        Command::Har(command) => har_command(command, &start_dir, style),
+
         Command::Jwt { token, capture, json } => jwt_command(token, capture, json, &start_dir, style),
 
         Command::Curl { request, env, vars, session, show_secrets, one_line } => curl_command(
@@ -533,6 +570,90 @@ struct CurlArgs {
     session: Option<String>,
     show_secrets: bool,
     one_line: bool,
+}
+
+fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<Outcome> {
+    let collection = open_collection(start_dir)?;
+    let store = CaptureStore::new(collection.captures_path());
+
+    match command {
+        HarCommand::Export { out, host, url, method, status, session, limit } => {
+            let filter = CaptureFilter {
+                host,
+                url,
+                method,
+                status_min: status,
+                status_max: None,
+                session,
+            };
+            let captures = store.list(&filter, limit)?;
+            let har = gabriel_core::har::export(&captures);
+            let text = serde_json::to_string_pretty(&har)?;
+
+            match out {
+                Some(path) => {
+                    std::fs::write(&path, &text)
+                        .with_context(|| format!("writing {}", path.display()))?;
+                    eprintln!(
+                        "{} {} capture(s) to {}",
+                        style.green("exported"),
+                        captures.len(),
+                        path.display()
+                    );
+                    // The log holds credentials, and so does anything derived
+                    // from it — say so once rather than assume it is obvious.
+                    eprintln!(
+                        "{} the file contains request headers verbatim, including cookies and tokens",
+                        style.yellow("warning:")
+                    );
+                }
+                None => println!("{text}"),
+            }
+            Ok(Outcome::Success)
+        }
+
+        HarCommand::Import { file, session } => {
+            let text = std::fs::read_to_string(&file)
+                .with_context(|| format!("reading {}", file.display()))?;
+            let har: gabriel_core::har::Har = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not a HAR file", file.display()))?;
+
+            // A prefix keeps imported ids from colliding with recorded ones.
+            let prefix = format!("i{:x}", gabriel_core::now_ms());
+            let (mut captures, skipped) = gabriel_core::har::import(&har, &prefix);
+
+            if let Some(session) = &session {
+                for capture in &mut captures {
+                    capture.session = Some(session.clone());
+                }
+            }
+
+            for capture in &captures {
+                store.append(capture)?;
+            }
+
+            println!(
+                "{} {} capture(s) from {} ({})",
+                style.green("imported"),
+                captures.len(),
+                file.display(),
+                har.log.creator.name
+            );
+            if skipped > 0 {
+                eprintln!(
+                    "{} skipped {skipped} entr{} with no usable request",
+                    style.yellow("note:"),
+                    if skipped == 1 { "y" } else { "ies" }
+                );
+            }
+            if !captures.is_empty() {
+                println!();
+                println!("  {}", style.dim("gabriel capture ls        see what arrived"));
+                println!("  {}", style.dim("gabriel promote <id>      turn one into a request"));
+            }
+            Ok(Outcome::Success)
+        }
+    }
 }
 
 fn jwt_command(

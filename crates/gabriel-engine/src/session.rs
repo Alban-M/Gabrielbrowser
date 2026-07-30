@@ -190,20 +190,9 @@ fn parse_http_date(value: &str) -> Option<u64> {
     let minute: i64 = hms.next()?.parse().ok()?;
     let second: i64 = hms.next()?.parse().ok()?;
 
-    let days = days_from_civil(year, month, day);
+    let days = gabriel_core::days_from_civil(year, month, day);
     let secs = days * 86_400 + hour * 3600 + minute * 60 + second;
     Some((secs.max(0) as u64) * 1000)
-}
-
-/// Inverse of `gabriel_core`'s `civil_from_days`.
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
 }
 
 /// Named cookie jars, one per session (a browser profile, a Space, a persona).

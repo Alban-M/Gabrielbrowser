@@ -23,6 +23,8 @@ gabriel diff <id-a> <id-b>         # what changed between two responses
 gabriel run <name> --stream        # follow a server-sent event stream live
 gabriel jwt <token>                # decode and inspect a JWT, locally
 gabriel curl <name>                # print the request as a curl command
+gabriel har import <file>          # bring in traffic from DevTools/Charles/Proxyman
+gabriel har export --out t.har     # take it back out again
 ```
 
 The promotion step is the point. A captured request becomes a file with **no
@@ -117,7 +119,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 246 tests
+cargo test          # 263 tests
 cargo build --release
 ```
 

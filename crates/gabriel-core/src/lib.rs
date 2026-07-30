@@ -8,6 +8,7 @@
 pub mod capture;
 pub mod diff;
 pub mod error;
+pub mod har;
 pub mod jsonpath;
 pub mod jwt;
 pub mod model;
@@ -112,6 +113,92 @@ pub fn permission_warning() -> Option<&'static str> {
     }
 }
 
+/// Parse an ISO-8601 / RFC-3339 instant into epoch milliseconds.
+///
+/// Needed to read HAR files, whose `startedDateTime` is this format. Accepts a
+/// `Z` or `+HH:MM` offset, optional fractional seconds of any length, and a
+/// space instead of `T` (which real exporters emit). Returns `None` rather than
+/// guessing when the shape is wrong — a capture with the wrong timestamp sorts
+/// into the wrong place forever.
+pub fn parse_iso8601(value: &str) -> Option<u64> {
+    let value = value.trim();
+    let (date, rest) = value.split_once(['T', 't', ' '])?;
+
+    let mut date_parts = date.split('-');
+    let year: i64 = date_parts.next()?.parse().ok()?;
+    let month: i64 = date_parts.next()?.parse().ok()?;
+    let day: i64 = date_parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    // Split the offset off the time before parsing it.
+    let (time, offset_minutes) = split_offset(rest)?;
+
+    let mut time_parts = time.split(':');
+    let hour: i64 = time_parts.next()?.parse().ok()?;
+    let minute: i64 = time_parts.next()?.parse().ok()?;
+    let (second, millis) = match time_parts.next() {
+        Some(seconds) => match seconds.split_once('.') {
+            Some((whole, fraction)) => {
+                let whole: i64 = whole.parse().ok()?;
+                // Fractions can be any length; take milliseconds, pad or trim.
+                let digits: String =
+                    fraction.chars().filter(|c| c.is_ascii_digit()).take(3).collect();
+                let millis: i64 = format!("{digits:0<3}").parse().ok()?;
+                (whole, millis)
+            }
+            None => (seconds.parse().ok()?, 0),
+        },
+        None => (0, 0),
+    };
+    if !(0..=23).contains(&hour) || !(0..=59).contains(&minute) || !(0..=60).contains(&second) {
+        return None;
+    }
+
+    let days = days_from_civil(year, month, day);
+    let seconds = days * 86_400 + hour * 3600 + minute * 60 + second - offset_minutes * 60;
+    let millis = seconds * 1000 + millis;
+    (millis >= 0).then_some(millis as u64)
+}
+
+/// Split a trailing zone designator, returning the time and its offset in
+/// minutes east of UTC.
+fn split_offset(rest: &str) -> Option<(&str, i64)> {
+    if let Some(time) = rest.strip_suffix('Z').or_else(|| rest.strip_suffix('z')) {
+        return Some((time, 0));
+    }
+    // Look for a sign after the time, not the one that could start it.
+    if let Some(index) = rest.rfind(['+', '-']) {
+        let (time, offset) = rest.split_at(index);
+        let sign = if offset.starts_with('-') { -1 } else { 1 };
+        let offset = &offset[1..];
+        let (hours, minutes) = match offset.split_once(':') {
+            Some((h, m)) => (h.parse::<i64>().ok()?, m.parse::<i64>().ok()?),
+            // `+0200` and `+02` both occur.
+            None if offset.len() == 4 => {
+                (offset[..2].parse::<i64>().ok()?, offset[2..].parse::<i64>().ok()?)
+            }
+            None => (offset.parse::<i64>().ok()?, 0),
+        };
+        return Some((time, sign * (hours * 60 + minutes)));
+    }
+    // No zone at all: HAR requires one, but exporters omit it. Treat as UTC.
+    Some((rest, 0))
+}
+
+/// Days since the Unix epoch for a calendar date — the inverse of
+/// [`date_parts`], by Howard Hinnant's algorithm.
+pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
 /// Human-friendly byte count for terminal output.
 pub fn format_bytes(bytes: usize) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
@@ -171,6 +258,72 @@ mod tests {
         let now = 1_785_283_200_000;
         let (y, m, d) = date_parts(now, 0);
         assert!(format_iso8601(now).starts_with(&format!("{y:04}-{m:02}-{d:02}")));
+    }
+
+    #[test]
+    fn parses_the_iso_form_har_files_use() {
+        let ms = parse_iso8601("2026-07-29T00:00:00.000Z").unwrap();
+        assert_eq!(ms, 1_785_283_200_000);
+        assert_eq!(format_iso8601(ms), "2026-07-29T00:00:00.000Z");
+    }
+
+    #[test]
+    fn iso_parsing_round_trips_with_formatting() {
+        for ms in [0u64, 1_000, 1_709_210_096_789, 1_785_283_200_123] {
+            assert_eq!(parse_iso8601(&format_iso8601(ms)), Some(ms), "failed at {ms}");
+        }
+    }
+
+    #[test]
+    fn iso_parsing_accepts_the_variants_real_exporters_emit() {
+        let canonical = parse_iso8601("2026-07-29T12:30:45.500Z").unwrap();
+        // Fractions of other lengths.
+        assert_eq!(parse_iso8601("2026-07-29T12:30:45.5Z"), Some(canonical));
+        assert_eq!(parse_iso8601("2026-07-29T12:30:45.500000Z"), Some(canonical));
+        // Lowercase separators, and a space instead of T.
+        assert_eq!(parse_iso8601("2026-07-29t12:30:45.5z"), Some(canonical));
+        assert_eq!(parse_iso8601("2026-07-29 12:30:45.5Z"), Some(canonical));
+        // No fraction at all.
+        assert_eq!(
+            parse_iso8601("2026-07-29T12:30:45Z"),
+            Some(canonical - 500)
+        );
+    }
+
+    #[test]
+    fn iso_parsing_applies_the_zone_offset() {
+        let utc = parse_iso8601("2026-07-29T12:00:00Z").unwrap();
+        // Noon in Berlin is 10:00 UTC.
+        assert_eq!(parse_iso8601("2026-07-29T12:00:00+02:00"), Some(utc - 2 * 3_600_000));
+        assert_eq!(parse_iso8601("2026-07-29T12:00:00+0200"), Some(utc - 2 * 3_600_000));
+        // And west of UTC.
+        assert_eq!(parse_iso8601("2026-07-29T12:00:00-05:00"), Some(utc + 5 * 3_600_000));
+        // A missing zone is treated as UTC rather than rejected.
+        assert_eq!(parse_iso8601("2026-07-29T12:00:00"), Some(utc));
+    }
+
+    #[test]
+    fn malformed_instants_are_rejected_rather_than_guessed() {
+        for bad in [
+            "",
+            "2026-07-29",
+            "not a date",
+            "2026-13-01T00:00:00Z",
+            "2026-07-32T00:00:00Z",
+            "2026-07-29T25:00:00Z",
+            "2026-07-29T00:61:00Z",
+            "1969-01-01T00:00:00Z",
+        ] {
+            assert_eq!(parse_iso8601(bad), None, "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn civil_days_round_trip() {
+        for (y, m, d) in [(1970, 1, 1), (2024, 2, 29), (2026, 7, 29), (2000, 3, 1)] {
+            let days = days_from_civil(y, m, d);
+            assert_eq!(date_parts((days * 86_400 * 1000) as u64, 0), (y, m as u32, d as u32));
+        }
     }
 
     #[test]
