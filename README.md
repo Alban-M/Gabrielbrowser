@@ -14,7 +14,13 @@ as the engine a browser shell would later sit on top of.
 ## Install
 
 No published binaries yet — the release workflow builds them on a tag, and the
-first tag has not been cut. Until then:
+first tag has not been cut. Until then, from a clone:
+
+```bash
+cargo install --path crates/gabriel-cli
+```
+
+Or straight from the repository, which needs access while it is private:
 
 ```bash
 cargo install --git https://github.com/Alban-M/Gabrielbrowser gabriel-cli
