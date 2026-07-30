@@ -36,12 +36,22 @@ pub enum EngineError {
     #[error("{0}")]
     Auth(String),
 
-    #[error("body file {path}: {source}")]
+    #[error("body file {path}")]
     BodyFile {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
+
+    #[error("client certificate {path}")]
+    ClientCertFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("client certificate `{reference}` is not a usable PEM identity: {message}")]
+    ClientCert { reference: String, message: String },
 }
 
 type Result<T> = std::result::Result<T, EngineError>;
@@ -181,6 +191,27 @@ struct ClientKey {
     timeout_ms: u64,
     verify_tls: bool,
     proxy: Option<String>,
+    /// Fingerprint of the client certificate, so a pooled client is never
+    /// handed back presenting somebody else's identity — or none at all.
+    identity: Option<u64>,
+}
+
+/// A client certificate and its private key, as PEM.
+struct IdentityMaterial {
+    /// Hash of the PEM, used only to key the client pool.
+    fingerprint: u64,
+    pem: Vec<u8>,
+}
+
+/// Written by hand rather than derived: this struct holds a private key, and a
+/// derived `Debug` would put it in the first log line that formats a request.
+impl std::fmt::Debug for IdentityMaterial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityMaterial")
+            .field("fingerprint", &self.fingerprint)
+            .field("pem", &format_args!("<{} bytes redacted>", self.pem.len()))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -232,7 +263,8 @@ impl Executor {
         // where the hop is going.
         self.apply_auth(spec, ctx, &mut url, &mut header_list).await?;
 
-        let client = self.client_for(spec)?;
+        let identity = resolve_identity(spec, ctx)?;
+        let client = self.client_for(spec, identity.as_ref())?;
         let mut method = reqwest::Method::from_bytes(spec.method.as_bytes()).map_err(|e| {
             EngineError::BadUrl { url: spec.method.clone(), message: e.to_string() }
         })?;
@@ -409,12 +441,17 @@ impl Executor {
         merge_cookie_headers(from_session.as_deref(), from_chain.as_deref())
     }
 
-    fn client_for(&mut self, spec: &RequestSpec) -> Result<reqwest::Client> {
+    fn client_for(
+        &mut self,
+        spec: &RequestSpec,
+        identity: Option<&IdentityMaterial>,
+    ) -> Result<reqwest::Client> {
         let settings = &spec.settings;
         let key = ClientKey {
             timeout_ms: settings.timeout_ms,
             verify_tls: settings.verify_tls,
             proxy: settings.proxy.clone(),
+            identity: identity.map(|i| i.fingerprint),
         };
         if let Some(client) = self.clients.get(&key) {
             return Ok(client.clone());
@@ -433,6 +470,16 @@ impl Executor {
         if let Some(proxy) = &settings.proxy {
             builder = builder
                 .proxy(reqwest::Proxy::all(proxy).map_err(|e| EngineError::Client(e.to_string()))?);
+        }
+
+        if let Some(identity) = identity {
+            let parsed = reqwest::Identity::from_pem(&identity.pem).map_err(|e| {
+                EngineError::ClientCert {
+                    reference: settings.client_cert.clone().unwrap_or_default(),
+                    message: e.to_string(),
+                }
+            })?;
+            builder = builder.identity(parsed);
         }
 
         let client = builder.build().map_err(|e| EngineError::Client(e.to_string()))?;
@@ -695,6 +742,38 @@ fn apply_captures(
     captured
 }
 
+/// Load the client certificate named by `settings.client_cert`, if any.
+///
+/// The value is resolved as a template first, so `{{secret:name}}` pulls a PEM
+/// straight out of the vault and the private key never has to sit on disk. A
+/// value that does not look like PEM is treated as a path, relative to the
+/// collection — the same thing `curl --cert` accepts.
+fn resolve_identity(
+    spec: &RequestSpec,
+    ctx: &mut RunContext<'_, '_>,
+) -> Result<Option<IdentityMaterial>> {
+    use std::hash::{Hash as _, Hasher as _};
+
+    let Some(reference) = &spec.settings.client_cert else {
+        return Ok(None);
+    };
+    let resolved = ctx.resolver.resolve(reference)?;
+    if resolved.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let pem = if resolved.contains("-----BEGIN") {
+        resolved.into_bytes()
+    } else {
+        let path = ctx.base_dir.join(&resolved);
+        std::fs::read(&path).map_err(|source| EngineError::ClientCertFile { path, source })?
+    };
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    pem.hash(&mut hasher);
+    Ok(Some(IdentityMaterial { fingerprint: hasher.finish(), pem }))
+}
+
 /// reqwest's own message stops at "error sending request"; the cause is in the
 /// source chain, and the cause is the part a developer needs.
 fn describe_transport_error(error: &reqwest::Error) -> String {
@@ -833,13 +912,86 @@ mod tests {
     fn clients_are_pooled_by_settings() {
         let mut executor = Executor::new();
         let spec = RequestSpec::new("GET", "https://api.test");
-        executor.client_for(&spec).unwrap();
-        executor.client_for(&spec).unwrap();
+        executor.client_for(&spec, None).unwrap();
+        executor.client_for(&spec, None).unwrap();
         assert_eq!(executor.clients.len(), 1);
 
         let mut slower = RequestSpec::new("GET", "https://api.test");
         slower.settings.timeout_ms = 1000;
-        executor.client_for(&slower).unwrap();
+        executor.client_for(&slower, None).unwrap();
         assert_eq!(executor.clients.len(), 2);
+    }
+
+    /// Pooling must not hand back a client carrying the wrong identity — or no
+    /// identity at all — to a request that asked for a client certificate.
+    #[test]
+    fn clients_are_pooled_separately_per_client_certificate() {
+        let mut executor = Executor::new();
+        let spec = RequestSpec::new("GET", "https://api.test");
+
+        executor.client_for(&spec, None).unwrap();
+        assert_eq!(executor.clients.len(), 1);
+
+        let one = IdentityMaterial { fingerprint: 1, pem: Vec::new() };
+        let two = IdentityMaterial { fingerprint: 2, pem: Vec::new() };
+
+        // A bad PEM is rejected rather than silently ignored.
+        assert!(executor.client_for(&spec, Some(&one)).is_err());
+        assert_eq!(executor.clients.len(), 1, "a failed client must not be cached");
+
+        assert_ne!(
+            ClientKey {
+                timeout_ms: 0,
+                verify_tls: true,
+                proxy: None,
+                identity: Some(one.fingerprint),
+            },
+            ClientKey {
+                timeout_ms: 0,
+                verify_tls: true,
+                proxy: None,
+                identity: Some(two.fingerprint),
+            }
+        );
+    }
+
+    #[test]
+    fn a_missing_client_certificate_file_names_the_path() {
+        let mut spec = RequestSpec::new("GET", "https://api.test");
+        spec.settings.client_cert = Some("certs/absent.pem".into());
+
+        let mut resolver = Resolver::new();
+        let mut sessions = SessionStore::new();
+        let mut ctx = RunContext::new(&mut resolver, &mut sessions);
+
+        let error = resolve_identity(&spec, &mut ctx).unwrap_err().to_string();
+        assert!(error.contains("absent.pem"), "unhelpful error: {error}");
+    }
+
+    #[test]
+    fn an_inline_pem_is_used_without_touching_the_filesystem() {
+        let mut spec = RequestSpec::new("GET", "https://api.test");
+        spec.settings.client_cert = Some("{{secret:client_identity}}".into());
+
+        let secrets: std::collections::BTreeMap<String, String> = [(
+            "client_identity".to_string(),
+            "-----BEGIN CERTIFICATE-----\nnot-a-real-cert\n-----END CERTIFICATE-----".to_string(),
+        )]
+        .into();
+        let mut resolver = Resolver::new().with_secrets(&secrets);
+        let mut sessions = SessionStore::new();
+        let mut ctx = RunContext::new(&mut resolver, &mut sessions);
+
+        let material = resolve_identity(&spec, &mut ctx).unwrap().expect("identity");
+        assert!(String::from_utf8_lossy(&material.pem).contains("BEGIN CERTIFICATE"));
+    }
+
+    #[test]
+    fn no_client_certificate_means_no_identity() {
+        let spec = RequestSpec::new("GET", "https://api.test");
+        let mut resolver = Resolver::new();
+        let mut sessions = SessionStore::new();
+        let mut ctx = RunContext::new(&mut resolver, &mut sessions);
+        assert!(resolve_identity(&spec, &mut ctx).unwrap().is_none());
     }
 }

@@ -87,10 +87,23 @@ from matching `bank.test`. There are tests for the leaks, not just the hits.
 excluded (`--exclude bank.test`) or interception narrowed (`--only api.test`);
 anything out of scope is tunnelled byte-for-byte, unread.
 
+## mTLS
+
+A request can present a client certificate. The PEM must hold both the
+certificate and its private key:
+
+```toml
+[settings]
+# From the vault, so the key never sits on disk in the clear:
+client_cert = "{{secret:client_identity}}"
+# …or a path relative to the collection root, as `curl --cert` takes one:
+# client_cert = "certs/client.pem"
+```
+
 ## Building
 
 ```bash
-cargo test          # 135 tests
+cargo test          # 167 tests
 cargo build --release
 ```
 
@@ -118,9 +131,9 @@ Known gaps in what *is* built:
   recorded as a 101 — but the frames are not captured. The relay is exercised
   end to end over plain HTTP; the TLS path shares the same code but has only
   been verified by inspection.
-- **`settings.client_cert` is not implemented.** The field parses but the engine
-  does not present a client certificate, so mTLS does not work yet.
 - **OAuth2** covers the client-credentials and password grants, not the
   authorization-code redirect flow.
 - **The proxy speaks HTTP/1.1** to the browser.
-- **Capture reads scale with the whole log** — see [docs/performance.md](docs/performance.md).
+- **Looking up an old capture is a scan.** Reads walk backwards from the end of
+  the log, so the newest captures are instant and the oldest in a large log is
+  not — see [docs/performance.md](docs/performance.md).

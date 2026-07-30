@@ -22,7 +22,7 @@ const FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Io {
         path: PathBuf,
         #[source]

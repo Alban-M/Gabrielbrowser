@@ -31,7 +31,7 @@ pub enum CollectionError {
     #[error("no Gabriel collection found in {0} or any parent — run `gabriel init` to create one")]
     NotFound(PathBuf),
 
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Io {
         path: PathBuf,
         #[source]

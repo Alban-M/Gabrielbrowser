@@ -289,16 +289,21 @@ fn capture_store_section() {
         }
         list_rows.push(list.summary());
 
-        let mut get = Samples::new(format!("get by id · {size} captures"));
-        for _ in 0..10 {
-            let started = Instant::now();
-            store.get(&format!("cap-{}", size / 2)).expect("get");
-            get.push(started.elapsed());
+        // Position matters now that reads walk backwards: looking up the
+        // capture you just saw in `ls` is not the same work as looking up the
+        // first one ever recorded.
+        for (label, index) in [("newest", size - 1), ("middle", size / 2), ("oldest", 0)] {
+            let mut get = Samples::new(format!("get {label} of {size} captures"));
+            for _ in 0..10 {
+                let started = Instant::now();
+                store.get(&format!("cap-{index}")).expect("get");
+                get.push(started.elapsed());
+            }
+            get_rows.push(get.summary());
         }
-        get_rows.push(get.summary());
     }
-    print_table("Capture log reads · every read parses the whole file", &list_rows);
-    print_table("Capture lookup by id", &get_rows);
+    print_table("Capture log reads · newest-first, stops at the limit", &list_rows);
+    print_table("Capture lookup by id · cost depends on how far back it is", &get_rows);
     attribution_section();
 }
 
@@ -382,8 +387,8 @@ fn attribution_section() {
         stats::ms(parse_elapsed.as_secs_f64() * 1000.0),
     );
     println!(
-        "  → the cost is deserialization, not I/O; `ls --limit 30` decodes every\n    \
-         capture ever recorded to show the last thirty."
+        "  → the cost is deserialization, not I/O. This is the bill a full walk\n    \
+         pays, which is why reads stop as soon as they have what was asked for."
     );
 }
 

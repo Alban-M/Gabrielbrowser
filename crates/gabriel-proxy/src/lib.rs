@@ -55,7 +55,7 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> IoStream fo
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
-    #[error("could not listen on {addr}: {source}")]
+    #[error("could not listen on {addr}")]
     Bind {
         addr: SocketAddr,
         #[source]

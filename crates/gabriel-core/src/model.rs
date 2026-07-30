@@ -282,7 +282,13 @@ pub struct Settings {
     pub verify_tls: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
-    /// Client certificate (mTLS), by vault key.
+    /// Client certificate for mTLS, as a PEM bundle holding both the
+    /// certificate and its private key.
+    ///
+    /// Two forms are accepted. `"{{secret:name}}"` pulls the PEM out of the
+    /// vault, so the private key never sits on disk in the clear; anything else
+    /// is treated as a path relative to the collection root, the way
+    /// `curl --cert` takes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_cert: Option<String>,
 }

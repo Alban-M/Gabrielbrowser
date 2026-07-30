@@ -160,13 +160,24 @@ enum CaptureCommand {
     },
     /// List captured requests, most recent first.
     Ls {
+        /// Substring match against the host, e.g. `--host api.example.com`.
         #[arg(long)]
         host: Option<String>,
+        /// Substring match against the whole URL, e.g. `--url /v2/orders`.
+        #[arg(long)]
+        url: Option<String>,
         #[arg(long)]
         method: Option<String>,
         /// Only show responses at or above this status, e.g. `--status 400`.
         #[arg(long)]
         status: Option<u16>,
+        /// Only show responses at or below this status. Combine with `--status`
+        /// for a range: `--status 400 --status-max 499`.
+        #[arg(long)]
+        status_max: Option<u16>,
+        /// Only show captures recorded under this session.
+        #[arg(long)]
+        session: Option<String>,
         #[arg(short, long, default_value_t = 30)]
         limit: usize,
     },
@@ -202,6 +213,11 @@ struct PromoteArgs {
     /// Also record the request's origin as `base_url` in this environment.
     #[arg(short, long)]
     env: Option<String>,
+
+    /// Replace an existing request file. Without this, promoting onto a path
+    /// that already exists stops rather than discarding what is there.
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(Subcommand)]
@@ -289,10 +305,25 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             start_capture(&start_dir, port, session, exclude, only, style)
         }
 
-        Command::Capture(CaptureCommand::Ls { host, method, status, limit }) => {
+        Command::Capture(CaptureCommand::Ls {
+            host,
+            url,
+            method,
+            status,
+            status_max,
+            session,
+            limit,
+        }) => {
             let collection = open_collection(&start_dir)?;
             let store = CaptureStore::new(collection.captures_path());
-            let filter = CaptureFilter { host, method, status_min: status, ..Default::default() };
+            let filter = CaptureFilter {
+                host,
+                url,
+                method,
+                status_min: status,
+                status_max,
+                session,
+            };
             let captures = store.list(&filter, limit)?;
             if captures.is_empty() {
                 println!(
@@ -580,6 +611,19 @@ fn promote(args: PromoteArgs, start_dir: &Path, style: &Style) -> Result<Outcome
         Some(path) => path,
         None => collection.unique_request_path(promotion.spec.display_name()),
     };
+
+    // An explicit --to can name a request that already exists, and that file may
+    // have been edited by hand. Overwriting it silently loses work.
+    if !args.force
+        && let Ok(existing) = collection.find(&path)
+        && existing.id == path.trim_matches('/').trim_end_matches(".toml")
+    {
+        bail!(
+            "{} already exists — pass --force to replace it, or --to <other-path>",
+            existing.path.display()
+        );
+    }
+
     let written = collection.save_request(&path, &promotion.spec)?;
     println!("{} {}", style.green("saved"), written.display());
 

@@ -18,7 +18,7 @@ pub enum Error {
     #[error("unterminated `{{{{` in template: {0}")]
     UnterminatedTemplate(String),
 
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Io {
         path: PathBuf,
         #[source]

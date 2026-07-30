@@ -1030,11 +1030,14 @@ name = "gabriel-engine"
 version = "0.1.0"
 dependencies = [
  "gabriel-core",
+ "rcgen",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "toml",
 ]
 

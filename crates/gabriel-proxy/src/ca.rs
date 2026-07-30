@@ -32,7 +32,7 @@ const CA_VALIDITY_YEARS: i64 = 5;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CaError {
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Io {
         path: PathBuf,
         #[source]
