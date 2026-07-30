@@ -13,13 +13,36 @@ use std::io::IsTerminal;
 
 pub struct Style {
     enabled: bool,
+    /// Whether stdout is a terminal. Tracked separately from colour because
+    /// `NO_COLOR` turns colour off without making the terminal any less
+    /// vulnerable to escape sequences.
+    tty: bool,
 }
 
 impl Style {
     pub fn detect() -> Self {
+        let tty = std::io::stdout().is_terminal();
         // NO_COLOR is a de-facto standard; honour it.
-        let enabled = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-        Style { enabled }
+        let enabled = tty && std::env::var_os("NO_COLOR").is_none();
+        Style { enabled, tty }
+    }
+
+    /// Make server-controlled text safe to print.
+    ///
+    /// Response bodies, header values and URLs are written by whoever is on the
+    /// other end of the connection. Printed raw, an escape sequence in any of
+    /// them can erase Gabriel's own output and replace it with something
+    /// convincing — for a tool whose job is inspecting hostile traffic, that is
+    /// not acceptable. Control bytes become caret notation (`^[` for ESC), which
+    /// `cat -v` users will recognise and no terminal will act on.
+    ///
+    /// Only applied when stdout is a terminal: a pipe should receive the bytes
+    /// that actually arrived.
+    pub fn safe(&self, text: &str) -> String {
+        if !self.tty {
+            return text.to_string();
+        }
+        escape_controls(text)
     }
 
     fn paint(&self, code: &str, text: &str) -> String {
@@ -65,6 +88,36 @@ impl Style {
     }
 }
 
+/// Replace control characters with caret notation, leaving newlines and tabs
+/// alone so multi-line output still reads normally.
+fn escape_controls(text: &str) -> String {
+    if !text.chars().any(needs_escaping) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\n' | '\t' => out.push(ch),
+            // C0 controls and DEL.
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push('^');
+                out.push(char::from_u32((c as u32 ^ 0x40) & 0x7f).unwrap_or('?'));
+            }
+            // C1 controls, which some terminals honour as escape equivalents.
+            c if (0x80..0xa0).contains(&(c as u32)) => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn needs_escaping(ch: char) -> bool {
+    let code = ch as u32;
+    (code < 0x20 && ch != '\n' && ch != '\t') || code == 0x7f || (0x80..0xa0).contains(&code)
+}
+
 /// Print a completed run: what was sent, what came back, what it bound, and
 /// whether the assertions held.
 pub fn print_run(
@@ -78,16 +131,20 @@ pub fn print_run(
     println!(
         "{} {}",
         style.bold(&outcome.sent.method),
-        redactor.apply(&outcome.sent.url)
+        style.safe(&redactor.apply(&outcome.sent.url))
     );
 
     if verbose {
         for (name, value) in &outcome.sent.headers {
-            println!("  {} {}", style.dim(&format!("{name}:")), redactor.apply(value));
+            println!(
+                "  {} {}",
+                style.dim(&style.safe(&format!("{name}:"))),
+                style.safe(&redactor.apply(value))
+            );
         }
         if let Some(body) = &outcome.sent.body {
             println!("{}", style.dim("  body:"));
-            println!("{}", indent(&redactor.apply(body), 4));
+            println!("{}", indent(&style.safe(&redactor.apply(body)), 4));
         }
         println!();
     }
@@ -103,14 +160,18 @@ pub fn print_run(
 
     if verbose {
         for (name, value) in response.headers.iter_pairs() {
-            println!("  {} {}", style.dim(&format!("{name}:")), value);
+            println!(
+                "  {} {}",
+                style.dim(&style.safe(&format!("{name}:"))),
+                style.safe(value)
+            );
         }
     }
 
     let body = render_body(response, body_limit);
     if !body.trim().is_empty() {
         println!();
-        println!("{}", redactor.apply(&body));
+        println!("{}", style.safe(&redactor.apply(&body)));
     }
 
     if !outcome.captured.is_empty() {
@@ -119,8 +180,8 @@ pub fn print_run(
             println!(
                 "{} {} = {}",
                 style.cyan("captured"),
-                name,
-                redactor.apply(&truncate(value, 120))
+                style.safe(name),
+                style.safe(&redactor.apply(&truncate(value, 120)))
             );
         }
     }
@@ -129,13 +190,13 @@ pub fn print_run(
         println!();
         for assertion in &outcome.assertions {
             if assertion.passed {
-                println!("{} {}", style.green("✓"), assertion.description);
+                println!("{} {}", style.green("✓"), style.safe(&assertion.description));
             } else {
                 println!(
                     "{} {} {}",
                     style.red("✗"),
-                    assertion.description,
-                    style.dim(&format!("(got {})", truncate(&assertion.actual, 80)))
+                    style.safe(&assertion.description),
+                    style.dim(&style.safe(&format!("(got {})", truncate(&assertion.actual, 80))))
                 );
             }
         }
@@ -196,25 +257,26 @@ pub fn print_diff(diff: &ResponseDiff, style: &Style) {
 }
 
 fn print_change(change: &Change, style: &Style) {
+    let path = style.safe(&change.path);
     match &change.kind {
         ChangeKind::Added { after } => println!(
             "  {} {} {}",
             style.green("+"),
-            change.path,
-            style.dim(&truncate(after, 100))
+            path,
+            style.dim(&style.safe(&truncate(after, 100)))
         ),
         ChangeKind::Removed { before } => println!(
             "  {} {} {}",
             style.red("-"),
-            change.path,
-            style.dim(&truncate(before, 100))
+            path,
+            style.dim(&style.safe(&truncate(before, 100)))
         ),
         ChangeKind::Changed { before, after } => println!(
             "  {} {} {} → {}",
             style.yellow("~"),
-            change.path,
-            style.dim(&truncate(before, 60)),
-            truncate(after, 60)
+            path,
+            style.dim(&style.safe(&truncate(before, 60))),
+            style.safe(&truncate(after, 60))
         ),
     }
 }
@@ -294,9 +356,49 @@ mod tests {
 
     #[test]
     fn styles_are_plain_when_disabled() {
-        let style = Style { enabled: false };
+        let style = Style { enabled: false, tty: false };
         assert_eq!(style.red("boom"), "boom");
         assert_eq!(style.status(500), "500");
+    }
+
+    #[test]
+    fn escape_sequences_from_a_response_cannot_reach_the_terminal() {
+        // "clear the line, go to column 0, print a reassuring lie"
+        let hostile = "\x1b[2K\rgabriel: 0 vulnerabilities found";
+        let printed = Style { enabled: true, tty: true }.safe(hostile);
+
+        assert!(!printed.contains('\x1b'), "ESC survived: {printed:?}");
+        assert!(!printed.contains('\r'), "CR survived: {printed:?}");
+        assert!(printed.starts_with("^[[2K^M"), "unexpected rendering: {printed}");
+        // The text itself is still readable, just inert.
+        assert!(printed.contains("0 vulnerabilities found"));
+    }
+
+    #[test]
+    fn other_control_bytes_are_neutralised_too() {
+        let style = Style { enabled: true, tty: true };
+        // Terminal title, bell, backspace-based overwriting, and a C1 escape.
+        assert_eq!(style.safe("\x1b]0;title\x07"), "^[]0;title^G");
+        assert_eq!(style.safe("secret\x08\x08\x08\x08\x08\x08public"), "secret^H^H^H^H^H^Hpublic");
+        assert_eq!(style.safe("\u{9b}[31m"), "\\u{9b}[31m");
+        assert_eq!(style.safe("\x7f"), "^?");
+    }
+
+    #[test]
+    fn newlines_tabs_and_text_are_left_alone() {
+        let style = Style { enabled: true, tty: true };
+        assert_eq!(style.safe("line one\nline two\tindented"), "line one\nline two\tindented");
+        assert_eq!(style.safe("café ☕ 日本語 🔒"), "café ☕ 日本語 🔒");
+        assert_eq!(style.safe("{\"a\": 1}"), "{\"a\": 1}");
+    }
+
+    /// Piping must stay byte-exact: `gabriel run --quiet | jq` should receive
+    /// what the server actually sent, and a pipe is not a terminal to attack.
+    #[test]
+    fn a_pipe_receives_the_bytes_unaltered() {
+        let style = Style { enabled: false, tty: false };
+        let hostile = "\x1b[2K\rtext";
+        assert_eq!(style.safe(hostile), hostile);
     }
 
     #[test]

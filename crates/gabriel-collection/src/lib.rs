@@ -52,6 +52,9 @@ pub enum CollectionError {
 
     #[error("a collection already exists at {0}")]
     AlreadyExists(PathBuf),
+
+    #[error("`{0}` would write outside the collection — request paths are relative to `requests/` and may not contain `..`")]
+    UnsafePath(String),
 }
 
 type Result<T> = std::result::Result<T, CollectionError>;
@@ -124,10 +127,21 @@ pub struct RequestEntry {
     pub spec: RequestSpec,
 }
 
+/// A request file that could not be read. Held rather than raised, so one bad
+/// file does not take the whole collection down with it.
+#[derive(Debug, Clone)]
+pub struct LoadProblem {
+    pub path: PathBuf,
+    /// Id the request would have had, so a `run` naming it can explain itself.
+    pub id: String,
+    pub message: String,
+}
+
 pub struct Collection {
     root: PathBuf,
     manifest: Manifest,
     requests: Vec<RequestEntry>,
+    problems: Vec<LoadProblem>,
 }
 
 impl Collection {
@@ -159,6 +173,7 @@ impl Collection {
         let manifest: Manifest = read_toml(&manifest_path)?;
 
         let mut requests = Vec::new();
+        let mut problems: Vec<LoadProblem> = Vec::new();
         let requests_root = root.join(REQUESTS_DIR);
         if requests_root.is_dir() {
             for entry in walkdir::WalkDir::new(&requests_root)
@@ -172,8 +187,24 @@ impl Collection {
                 {
                     continue;
                 }
-                let mut spec: RequestSpec = read_toml(path)?;
                 let id = request_id(&requests_root, path);
+                // A collection is edited by hand and shared through Git, so a
+                // teammate's malformed file must not stop everyone else from
+                // running anything. Same reasoning as the capture log, which
+                // skips a corrupt line rather than failing the read.
+                let mut spec: RequestSpec = match read_toml(path) {
+                    Ok(spec) => spec,
+                    Err(error) => {
+                        // Store the cause alone: callers re-attach the path, and
+                        // printing it twice reads like a bug.
+                        let message = match &error {
+                            CollectionError::Parse { message, .. } => message.clone(),
+                            other => other.to_string(),
+                        };
+                        problems.push(LoadProblem { path: path.to_path_buf(), id, message });
+                        continue;
+                    }
+                };
                 if spec.name.is_none() {
                     spec.name = path
                         .file_stem()
@@ -184,7 +215,7 @@ impl Collection {
             }
         }
 
-        Ok(Collection { root, manifest, requests })
+        Ok(Collection { root, manifest, requests, problems })
     }
 
     /// Create a new collection, with a starter request and environment so the
@@ -239,6 +270,12 @@ impl Collection {
         &self.requests
     }
 
+    /// Request files that failed to parse. Callers should report these rather
+    /// than pretend the collection is complete.
+    pub fn problems(&self) -> &[LoadProblem] {
+        &self.problems
+    }
+
     pub fn runtime_dir(&self) -> PathBuf {
         self.root.join(RUNTIME_DIR)
     }
@@ -275,7 +312,21 @@ impl Collection {
             .collect();
 
         match matches.len() {
-            0 => Err(CollectionError::NoSuchRequest(query.to_string())),
+            0 => {
+                // If the thing they asked for is the file that failed to parse,
+                // say so — "no request matches" would be a lie.
+                if let Some(problem) = self.problems.iter().find(|p| {
+                    p.id == query_norm
+                        || p.id.ends_with(&format!("/{query_norm}"))
+                        || p.id.to_lowercase().contains(&query_norm.to_lowercase())
+                }) {
+                    return Err(CollectionError::Parse {
+                        path: problem.path.clone(),
+                        message: problem.message.clone(),
+                    });
+                }
+                Err(CollectionError::NoSuchRequest(query.to_string()))
+            }
             1 => Ok(matches[0]),
             _ => Err(CollectionError::AmbiguousRequest {
                 query: query.to_string(),
@@ -347,7 +398,8 @@ impl Collection {
     /// Write a request into the collection at `rel` (e.g. `users/get-user`),
     /// creating parent directories. Returns the path written.
     pub fn save_request(&mut self, rel: &str, spec: &RequestSpec) -> Result<PathBuf> {
-        let rel = rel.trim_matches('/').trim_end_matches(".toml");
+        let rel = sanitize_request_path(rel)?;
+        let rel = rel.as_str();
         let path = self.root.join(REQUESTS_DIR).join(format!("{rel}.toml"));
         if let Some(parent) = path.parent() {
             create_dir(parent)?;
@@ -378,6 +430,51 @@ impl Collection {
             .find(|candidate| !self.requests.iter().any(|r| &r.id == candidate))
             .expect("infinite sequence yields a free name")
     }
+}
+
+/// Normalise a request path and refuse anything that escapes `requests/`.
+///
+/// `save_request` joins this onto the collection root, so without this a
+/// `--to ../../../elsewhere` would write wherever it liked. Paths are data, and
+/// data that becomes a filesystem path gets validated.
+fn sanitize_request_path(rel: &str) -> Result<String> {
+    // Checked before trimming: silently turning `/etc/passwd` into
+    // `requests/etc/passwd` is contained but surprising, and surprise is how
+    // people lose files.
+    if Path::new(rel.trim()).is_absolute() {
+        return Err(CollectionError::UnsafePath(rel.to_string()));
+    }
+
+    let trimmed = rel.trim().trim_matches('/').trim_end_matches(".toml");
+    if trimmed.is_empty() {
+        return Err(CollectionError::UnsafePath(rel.to_string()));
+    }
+    let candidate = Path::new(trimmed);
+
+    let mut parts = Vec::new();
+    for component in candidate.components() {
+        match component {
+            std::path::Component::Normal(part) => {
+                let part = part.to_string_lossy();
+                // A backslash is a separator on Windows and an ordinary
+                // character elsewhere; treating it as a name would let one
+                // platform's collection escape on the other.
+                if part.contains('\\') {
+                    return Err(CollectionError::UnsafePath(rel.to_string()));
+                }
+                parts.push(part.into_owned());
+            }
+            // `.` is harmless but pointless; everything else escapes or is
+            // platform-specific (`..`, `/`, `C:`).
+            std::path::Component::CurDir => {}
+            _ => return Err(CollectionError::UnsafePath(rel.to_string())),
+        }
+    }
+
+    if parts.is_empty() {
+        return Err(CollectionError::UnsafePath(rel.to_string()));
+    }
+    Ok(parts.join("/"))
 }
 
 fn request_id(requests_root: &Path, path: &Path) -> String {
@@ -628,6 +725,50 @@ mod tests {
 
         assert_eq!(collection.requests().iter().filter(|r| r.id == "x").count(), 1);
         assert_eq!(collection.find("x").unwrap().spec.method, "POST");
+    }
+
+    #[test]
+    fn a_request_path_cannot_escape_the_collection() {
+        let dir = temp_dir();
+        let mut collection = Collection::init(&dir, "demo").unwrap();
+        let spec = RequestSpec::new("GET", "https://x.test");
+
+        for attempt in [
+            "../escaped",
+            "../../escaped",
+            "a/../../escaped",
+            "/absolute/escaped",
+            "..",
+            "",
+            "   ",
+            "/",
+        ] {
+            let result = collection.save_request(attempt, &spec);
+            assert!(
+                matches!(result, Err(CollectionError::UnsafePath(_))),
+                "`{attempt}` was not rejected: {result:?}"
+            );
+        }
+
+        // And nothing was written outside the collection.
+        assert!(!dir.join("escaped.toml").exists());
+        assert!(!dir.parent().unwrap().join("escaped.toml").exists());
+    }
+
+    #[test]
+    fn ordinary_nested_paths_are_still_accepted() {
+        let dir = temp_dir();
+        let mut collection = Collection::init(&dir, "demo").unwrap();
+        let spec = RequestSpec::new("GET", "https://x.test");
+
+        for accepted in ["users/create", "a/b/c/deep", "./users/list", "trailing/", "x.toml"] {
+            assert!(
+                collection.save_request(accepted, &spec).is_ok(),
+                "`{accepted}` should be allowed"
+            );
+        }
+        assert!(collection.root().join(REQUESTS_DIR).join("users/create.toml").is_file());
+        assert!(collection.root().join(REQUESTS_DIR).join("users/list.toml").is_file());
     }
 
     #[test]

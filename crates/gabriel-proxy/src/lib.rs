@@ -369,7 +369,7 @@ async fn relay_upgrade(
 
     let tcp = TcpStream::connect((host.as_str(), port))
         .await
-        .map_err(|e| format!("connecting to {host}:{port} failed: {e}"))?;
+        .map_err(|e| format!("connecting to {host}:{port} failed: {}", describe(&e)))?;
     let io: Box<dyn IoStream> = if is_tls {
         let name = rustls::pki_types::ServerName::try_from(host.clone())
             .map_err(|e| format!("{host} is not a valid server name: {e}"))?;
@@ -377,7 +377,7 @@ async fn relay_upgrade(
             .tls_client
             .connect(name, tcp)
             .await
-            .map_err(|e| format!("TLS handshake with {host} failed: {e}"))?;
+            .map_err(|e| format!("TLS handshake with {host} failed: {}", describe(&e)))?;
         Box::new(tls)
     } else {
         Box::new(tcp)
@@ -385,7 +385,7 @@ async fn relay_upgrade(
 
     let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(io))
         .await
-        .map_err(|e| format!("HTTP handshake with {host} failed: {e}"))?;
+        .map_err(|e| format!("HTTP handshake with {host} failed: {}", describe(&e)))?;
     // The connection task must keep running for the upgrade to complete.
     tokio::spawn(async move {
         let _ = connection.with_upgrades().await;
@@ -394,7 +394,7 @@ async fn relay_upgrade(
     let mut upstream_response = sender
         .send_request(upstream_request)
         .await
-        .map_err(|e| format!("upgrade request to {url} failed: {e}"))?;
+        .map_err(|e| format!("upgrade request to {url} failed: {}", describe(&e)))?;
 
     let status = upstream_response.status();
     let mut response_headers = FieldMap::default();
@@ -496,7 +496,7 @@ async fn forward(
     let request_body = body
         .collect()
         .await
-        .map_err(|e| format!("reading the request body failed: {e}"))?
+        .map_err(|e| format!("reading the request body failed: {}", describe(&e)))?
         .to_bytes();
 
     let mut upstream = state
@@ -518,7 +518,7 @@ async fn forward(
     let response = upstream
         .send()
         .await
-        .map_err(|e| format!("upstream request to {url} failed: {e}"))?;
+        .map_err(|e| format!("upstream request to {url} failed: {}", describe(&e)))?;
 
     let status = response.status();
     let mut response_headers = FieldMap::default();
@@ -601,7 +601,7 @@ async fn forward(
     let response_body = response
         .bytes()
         .await
-        .map_err(|e| format!("reading the response body failed: {e}"))?;
+        .map_err(|e| format!("reading the response body failed: {}", describe(&e)))?;
     record(Some(&response_body));
 
     out.body(buffered(response_body))
@@ -628,6 +628,25 @@ fn streams_indefinitely(headers: &FieldMap, max_body_bytes: usize) -> bool {
         .get_first("content-length")
         .and_then(|value| value.parse::<usize>().ok())
         .is_some_and(|length| length > max_body_bytes)
+}
+
+/// Flatten an error and its causes into one line.
+///
+/// reqwest's own message stops at "error sending request"; the reason — a
+/// refused connection, a rejected header, a TLS failure — lives in the source
+/// chain. Reporting only the top line makes the proxy's 502s undiagnosable.
+fn describe(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
 }
 
 fn body_for_capture(bytes: &[u8], max: usize) -> Option<CapturedBody> {

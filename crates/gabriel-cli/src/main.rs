@@ -288,6 +288,22 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
                     style.dim(&entry.spec.url)
                 );
             }
+            // Broken files are listed too — silently omitting them would make
+            // a request look deleted rather than malformed.
+            for problem in collection.problems() {
+                println!(
+                    "{:<28} {}",
+                    style.red(&problem.id),
+                    style.dim(&format!("unreadable: {}", problem.message.lines().next().unwrap_or("")))
+                );
+            }
+            if !collection.problems().is_empty() {
+                eprintln!(
+                    "{} {} request file(s) could not be read",
+                    style.yellow("warning:"),
+                    collection.problems().len()
+                );
+            }
             Ok(Outcome::Success)
         }
 
@@ -339,8 +355,8 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
                         .status()
                         .map(|s| style.status(s))
                         .unwrap_or_else(|| style.dim("---")),
-                    capture.request.method,
-                    output::truncate(&capture.request.url, 80),
+                    style.safe(&capture.request.method),
+                    style.safe(&output::truncate(&capture.request.url, 80)),
                     style.dim(&output::format_duration(capture.duration_ms)),
                 );
             }
@@ -381,9 +397,9 @@ fn run(cli: Cli, style: &Style) -> Result<Outcome> {
             println!(
                 "{} {}\n{} {}\n",
                 style.dim("before"),
-                output::truncate(&before.request.url, 90),
+                style.safe(&output::truncate(&before.request.url, 90)),
                 style.dim("after "),
-                output::truncate(&after.request.url, 90)
+                style.safe(&output::truncate(&after.request.url, 90))
             );
             let diff = gabriel_core::diff::diff_responses(
                 &support::capture_to_response(&before),
@@ -499,6 +515,7 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
 
     let mut executor = Executor::new();
     let mut all_passed = true;
+    let mut errors = 0usize;
 
     for (index, entry) in targets.iter().enumerate() {
         let spec = collection.apply_defaults(&entry.spec);
@@ -509,13 +526,27 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
             println!("{}", style.bold(&format!("── {} ", entry.id)));
         }
 
-        let outcome = {
+        let attempt = {
             let mut ctx = RunContext::new(&mut resolver, &mut sessions)
                 .with_session(session.clone())
                 .with_base_dir(collection.root());
             runtime
                 .block_on(executor.execute(&spec, &mut ctx))
-                .with_context(|| format!("running `{}`", entry.id))?
+                .with_context(|| format!("running `{}`", entry.id))
+        };
+
+        // Running a whole collection is a reporting job: one request that
+        // cannot even be sent must not hide the results of the rest. A single
+        // named request still fails outright.
+        let outcome = match attempt {
+            Ok(outcome) => outcome,
+            Err(error) if args.all => {
+                eprintln!("{} {error:#}", style.red("error:"));
+                errors += 1;
+                all_passed = false;
+                continue;
+            }
+            Err(error) => return Err(error),
         };
 
         let redactor = if args.show_secrets {
@@ -525,9 +556,11 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
         };
 
         if args.quiet {
+            // `safe` is a no-op when stdout is a pipe, so `| jq` still gets the
+            // exact bytes; at a terminal the escapes are defused.
             println!(
                 "{}",
-                redactor.apply(&output::render_body(&outcome.response, usize::MAX))
+                style.safe(&redactor.apply(&output::render_body(&outcome.response, usize::MAX)))
             );
         } else {
             output::print_run(&outcome, style, &redactor, args.verbose, args.body_limit);
@@ -537,6 +570,13 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
 
     sessions.save()?;
 
+    if errors > 0 {
+        // Report every failure that was skipped over, then fail the run.
+        bail!(
+            "{errors} of {} request(s) could not be sent",
+            targets.len()
+        );
+    }
     Ok(if all_passed { Outcome::Success } else { Outcome::AssertionsFailed })
 }
 

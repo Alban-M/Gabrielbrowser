@@ -125,8 +125,8 @@ pub fn set_environment_var(
 pub fn print_capture(capture: &Capture, style: &Style) {
     println!(
         "{} {}",
-        style.bold(&capture.request.method),
-        capture.request.url
+        style.bold(&style.safe(&capture.request.method)),
+        style.safe(&capture.request.url)
     );
     println!(
         "{} {}",
@@ -134,20 +134,24 @@ pub fn print_capture(capture: &Capture, style: &Style) {
         gabriel_core::format_iso8601(capture.at)
     );
     if let Some(page) = &capture.page {
-        println!("{} {page}", style.dim("from"));
+        println!("{} {}", style.dim("from"), style.safe(page));
     }
     if let Some(session) = &capture.session {
-        println!("{} {session}", style.dim("session"));
+        println!("{} {}", style.dim("session"), style.safe(session));
     }
 
     println!();
     println!("{}", style.bold("request"));
     for (name, value) in capture.request.headers.iter_pairs() {
-        println!("  {} {}", style.dim(&format!("{name}:")), redact_credential(name, value));
+        println!(
+            "  {} {}",
+            style.dim(&style.safe(&format!("{name}:"))),
+            style.safe(&redact_credential(name, value))
+        );
     }
     if let Some(body) = &capture.request.body {
         println!();
-        println!("{}", body_preview(body));
+        println!("{}", style.safe(&body_preview(body)));
     }
 
     if let Some(response) = &capture.response {
@@ -159,11 +163,15 @@ pub fn print_capture(capture: &Capture, style: &Style) {
             style.dim(&response.status_text)
         );
         for (name, value) in response.headers.iter_pairs() {
-            println!("  {} {}", style.dim(&format!("{name}:")), value);
+            println!(
+                "  {} {}",
+                style.dim(&style.safe(&format!("{name}:"))),
+                style.safe(value)
+            );
         }
         if let Some(body) = &response.body {
             println!();
-            println!("{}", body_preview(body));
+            println!("{}", style.safe(&body_preview(body)));
         }
     }
 }

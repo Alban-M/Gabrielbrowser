@@ -80,6 +80,17 @@ vault are masked again on the way to the terminal.
 **Cookie scoping is a security boundary.** Domain and path matching follow
 RFC 6265 §5.1.3–5.1.4, including the dot boundary that stops `notbank.test`
 from matching `bank.test`. There are tests for the leaks, not just the hits.
+Credentials are also dropped when a redirect crosses origins, so an open
+redirect cannot walk off with an `Authorization` header.
+
+**Server-controlled text is defused before printing.** Response bodies, headers
+and URLs are written by whoever is on the other end. Printed raw, an escape
+sequence in any of them can erase Gabriel's output and replace it with something
+convincing — so control bytes become caret notation (`^[`) when stdout is a
+terminal. Pipes still receive the exact bytes, because `--quiet | jq` has to.
+
+**Request paths cannot escape the collection.** `promote --to ../../elsewhere`
+is refused rather than obeyed.
 
 **The interception CA is per install.** It is generated on first use, written
 `0600`, never shipped in a binary, and never installed into a trust store by us —
@@ -103,7 +114,7 @@ client_cert = "{{secret:client_identity}}"
 ## Building
 
 ```bash
-cargo test          # 167 tests
+cargo test          # 173 tests
 cargo build --release
 ```
 
