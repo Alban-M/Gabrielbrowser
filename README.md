@@ -365,19 +365,25 @@ module with it: feed the canaries from `gabriel-testkit` into every field the
 surface renders, and assert on what comes out. Published prose has no canary to
 inject, so `scan-secrets.sh` checks it by shape instead.
 
-**If an experiment costs less than defending an assumption, run the
-experiment.** Five claims in this repository's history were wrong in ways that
-took under a minute to settle by running something, and longer than that to
-argue: that `cwd` was unsupported in `launch.json` (it is supported, validated,
-and fails loudly); that `har export` was complete (it silently wrote 1,000 of
-100,000); that the manual test pass was runnable (it never said to put the
-binary on `PATH`); that the CA certificate should be `0600` (the *key* is; the
-certificate is public by design); and that the mockup rendered correctly (it
-did over `file://`, and mangled every em dash over HTTP).
+**When a claim concerns runtime behaviour and the behaviour is inexpensive to
+observe, prefer an experiment over inference.** Reading the code is how you form
+the hypothesis. It is not how you settle it.
 
-They share a shape: each was a claim about **behaviour**, and behaviour here is
-cheap to observe. Reading the code is how you form the hypothesis. It is not how
-you settle it.
+The claims that have been wrong here were wrong in a consistent way: each was
+about behaviour, each took under a minute to settle by running something, and
+each had already been argued for longer than that. `cwd` was "unsupported" in
+`launch.json` until pointing it outside the project produced a validation error
+saying otherwise. `har export` was "complete" until a 100,000-capture log
+produced a file with 1,000 in it. The mockup "rendered correctly" — over
+`file://`, where nothing revealed that serving it over HTTP mangled every em
+dash.
+
+The condition in the first sentence is doing real work, so do not drop it.
+Verifying OAuth against Google or Auth0 needs client IDs and a human at a
+consent screen; that experiment is expensive, which is why
+[the runbook](docs/oauth-interop.md) exists instead and why the interop table
+in it is honestly empty. Inference is the right tool when observation is dear.
+It is the wrong one when observation costs thirty seconds.
 
 The installer has its own suite because it is a trust boundary — the one piece
 of software someone runs before they have any reason to trust it, usually piped
