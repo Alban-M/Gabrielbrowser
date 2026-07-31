@@ -181,6 +181,28 @@ a pull request, and costs no parser of our own to maintain.
 
 ## Design decisions worth knowing
 
+The decisions below share a shape, and it is worth naming because it decides
+arguments quickly. Each is an answer to "how is this enforced", and the answers
+form a ladder — every rung is strictly stronger than the one beneath it:
+
+1. **Documentation.** The weakest. It moves the work of noticing onto the person
+   least able to do it, and it is thinnest exactly where it matters most —
+   the scripted run with stderr discarded.
+2. **A safe default.** Danger requires an explicit act. Allow-list construction
+   for the support bundle; a complete export unless `--limit` is given.
+3. **Binding.** The thing that was checked is the thing that gets used: verify
+   the checksum, then install *those bytes*. This rung exists because the gap
+   between "what was verified" and "what was used" is where the worst bugs live
+   — a failure here happens *after* a check passed, so it manufactures
+   confidence rather than merely permitting harm. Redaction that ran, showed a
+   mask, and left the credential in place is this failure exactly.
+4. **Structural impossibility.** The invalid state cannot be represented. A
+   `Removal` record with no field for the value it removed cannot leak it,
+   whoever writes the next line of code.
+
+Prefer the highest rung the problem allows. Most of the fixes in this codebase
+were a move up it, not a new feature.
+
 **Requests execute natively, not in a page.** That is what lets a replay ignore
 CORS and page CSP, speak HTTP/2, and present a client certificate.
 
