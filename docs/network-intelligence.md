@@ -1,18 +1,12 @@
-# The engineering evidence platform
+# Evidence you can run
 
-The strategy for what Gabriel becomes, the category it belongs in, and the
-constraint that decides how far it goes.
-
-Network intelligence is a subcategory of this, not the ceiling. Software
-produces evidence constantly — captured traffic, HARs, PCAPs, traces, logs,
-failed CI runs. Almost all of it is read once and thrown away. Gabriel's purpose
-is to turn that evidence into something reusable, and its differentiator is that
-some of it can be **run again**.
+What Gabriel is, what it accepts, what it produces, and the one constraint that
+decides how far it goes.
 
 Written the day CI first went green, before the first tag, with 11,687 lines of
-shipped code operating entirely at layer 7, no packet-capture dependency of any
-kind, and no user outside the machine that wrote it. Numbers that sound like
-measurements were measured; everything else is a hypothesis, and §11 says which.
+shipped code operating entirely at layer 7 and no user outside the machine that
+wrote it. Numbers that read like measurements were measured; everything else is
+a hypothesis, and §9 says which.
 
 ---
 
@@ -20,306 +14,243 @@ measurements were measured; everything else is a hypothesis, and §11 says which
 
 > **Evidence you can run.**
 
-Two words carry it. **Evidence**: what happened, faithfully, not what someone
-described. **Run**: not a record of it — the thing itself, again.
+**Evidence**: what happened, faithfully — not what someone described.
+**Run**: not a record of it. The thing itself, again.
 
-Every competitor has the first half. None has the second.
+Every word after this is an elaboration of those four.
 
-I want to argue against the alternative framings, because the difference is not
-cosmetic. *"The memory layer for software"* and *"understand everything your
-software did"* are both passive. A memory that cannot act is a log, and the
-market has excellent logs. The verb is the product: Gabriel's claim is not that
-it remembers better, it is that **what it remembers is executable.**
+A note on the category name, because a longer one was proposed and is worth
+declining: *engineering intelligence platform* is abstract, verbless, and
+indistinguishable from a hundred other vendors. It is the same passive
+construction as *the memory layer for software*, rejected earlier for the same
+reason. A category is remembered because it contains an action. "Evidence you
+can run" is the category. Nothing goes above it.
 
 ---
 
-## 2. The category, reframed
+## 2. Promotion is the company
 
-Gabriel is not in the packet-analysis category and should stop measuring itself
-against its incumbents. It is the layer above them, and they are its inputs.
+One operation distinguishes Gabriel from everything adjacent to it, and it is
+not capture, replay, or explanation. It is **promotion**: turning something that
+was observed into something *kept, named, versioned and runnable* — with the
+credentials removed.
 
 ```text
-runnable evidence                        contextual evidence
-PCAP · HAR · DevTools export ·           OTel traces · Jaeger · Datadog ·
-proxy capture · cURL · OpenAPI           k8s events · cloud audit · CI logs
-        │                                          │
-        │  contains the bytes                      │  describes what happened
-        ▼                                          ▼
-    ┌───────────────────────────────────────────────────┐
-    │                    evidence                        │
-    └───────────────────────────────────────────────────┘
-              │                              │
-          re-run                        understand · correlate
-              │                              │
-              └──────────────┬───────────────┘
-                             ▼
-     tests · OpenAPI · load scripts · docs · incident reports
+observed → reviewed → named → promoted → versioned → runnable → shared
 ```
 
-**These two kinds must not be conflated, and the expanded source list is where
-that mistake gets made.** A PCAP and a HAR contain the actual bytes: they can be
-replayed. An OpenTelemetry span, a Jaeger trace, a Datadog export and a
-Kubernetes event are *descriptions* — sampled, body-less, often lossy. There is
-nothing in them to send.
+That lifecycle is the product. `git commit` is the closest analogy: the value of
+a commit is not that bytes were stored, it is that a human decided this state
+was worth keeping and gave it a name — and history, diff, blame, revert and
+review all follow from that one deliberate act.
 
-Ingesting them is worth doing, for correlation: *this trace points at that
-captured request; here is the request, and here it is running again.* But a
-product that treats traces as first-class evidence and cannot run them has
-quietly become an observability tool — understanding without execution, which is
-the passive category the north star exists to reject. The market already has
-excellent observability.
+Promotion is the same act for behaviour. Two consequences:
 
-So: **contextual evidence enriches runnable evidence. It never substitutes for
-it, and the interface must never imply that it can.**
+- **Curation beats accumulation.** A store of everything the proxy ever saw is a
+  landfill with a search box. A promoted request is a behaviour someone decided
+  mattered, in a form that still runs.
+- **Everything else composes onto it.** Diff, tests, OpenAPI, load scripts,
+  documentation, incident reports — each is a transformation of a promoted
+  artifact rather than a separate feature.
 
-Wireshark, Charles, DevTools and the rest become **evidence sources**, not
-rivals. That is a strictly better position than "a nicer Wireshark", because it
-turns twenty years of accumulated dissectors from a moat protecting an incumbent
-into a supply chain feeding Gabriel. Their output becomes the raw material for
-the one operation none of them perform.
-
-It also resolves the strategic bind cleanly: there is no reason to fight for the
-packet-inspection user, because their tool now produces Gabriel's input.
+Today promotion applies to a single request. That is the smallest version of it.
 
 ---
 
-## 3. Every artifact becomes executable
+## 3. The unit is a behaviour, not a request
 
-The platform statement, and the thing worth building toward:
+Engineers do not think in requests. They think in *log in*, *check out*, *issue
+a refund*. One of those is four hundred requests, some traces, a queue message
+and a database write — but the name in someone's head is the behaviour.
+
+So the promotable unit should be a behaviour: **a named, ordered set of
+operations that happened together, kept as a unit.** Concretely a span of the
+timeline with a name — not a new abstraction, a bigger selection.
+
+What it buys: a vocabulary that matches how failures are actually reported
+("checkout is broken", never "request 4,812 returned 422"), an artifact worth
+handing to a colleague, and a diff that means something to a human — *checkout
+changed* rather than *this header changed*.
+
+What it must not claim: to be organisational knowledge. A named set of
+operations is a fact, verifiable by running it. "Knowledge" is where products
+stop being falsifiable, and an unfalsifiable claim is the thing this codebase
+has spent its history removing.
+
+---
+
+## 4. What Gabriel accepts
+
+Evidence from anywhere. If something records what a system did, it is input.
+
+```text
+runnable evidence          contextual evidence         promoted behaviour
+───────────────────        ───────────────────         ──────────────────
+HAR · PCAP · proxy         traces · metrics · logs     named · versioned
+capture · DevTools         events · alerts · CI runs   credential-free
+export · cURL · OpenAPI                                runnable · shared
+
+contains the bytes         describes what happened     someone chose to keep it
+        │                           │                           ▲
+        └───────── re-run ──────────┴──── correlate ────────────┘
+                              │
+                              ▼
+        tests · OpenAPI · load scripts · docs · incident reports
+```
+
+The three tiers are an architectural distinction, not a presentation.
+
+**Runnable evidence** contains the actual bytes. It can be replayed.
+
+**Contextual evidence** — an OpenTelemetry span, a Datadog export, a Kubernetes
+event — is a *description*: sampled, body-less, often lossy. There is nothing in
+it to send. It is valuable for correlation (*this trace points at that captured
+request; here it is, running again*) and must never be presented as replayable.
+Understanding without execution is the passive category the north star exists to
+avoid.
+
+**Promoted behaviour** is the third tier and the only one Gabriel creates rather
+than consumes. It is what evidence becomes once a human decides it matters:
+named, credential-free, committed, and still runnable a year later. It is the
+asset the other two tiers exist to produce.
+
+---
+
+## 5. What Gabriel produces
 
 | From | Gabriel produces | Status |
 | --- | --- | --- |
 | A captured request | a committable file that replays, credentials removed | **shipped** |
-| A span of captured traffic | an ordered suite sharing session state | designed |
 | A HAR from a colleague | the same, from their machine's evidence | **shipped** |
-| A PCAP from the network team | the HTTP conversation inside it, runnable | near |
-| A captured flow | OpenAPI, k6, Playwright, JMeter | adjacent |
+| Two runs of one behaviour | a diff that says what changed | **shipped** |
+| A span of traffic | a named behaviour: ordered, session-sharing, runnable | designed |
+| A PCAP from the network team | the conversation inside it, runnable | near |
+| A behaviour | OpenAPI, k6, Playwright, JMeter | adjacent |
 | A failed run | an incident report with the evidence attached | adjacent |
-| A production trace | a regression test in CI | future |
+| A behaviour run a month apart | what changed in the contract, and when | future |
 
-One row of that table exists today, and it is the row the others are built on.
-The direction is right; the sequencing in §10 is what makes it survivable.
-
----
-
-## 4. The constraint nobody has named: replay is bounded by idempotence
-
-This is the part I want to add to the brief, because it decides how far "across
-the stack" can actually go, and getting it wrong would break the core promise
-rather than merely slow it down.
-
-**Replaying an HTTP GET is safe. Replaying a payment POST charges the card
-twice.**
-
-Gabriel is currently safe by accident: developers replay reads while debugging,
-and a duplicated `GET /users/me` costs nothing. That accident does not survive
-contact with the brief's protocol list.
-
-| Protocol | Replaying it means | Danger |
-| --- | --- | --- |
-| HTTP GET | fetch again | none |
-| HTTP POST/PATCH/DELETE | **perform the action again** | duplicate orders, charges, deletions |
-| gRPC unary | depends entirely on the method | invisible from the wire |
-| **Kafka produce** | **re-publish to a live topic** | downstream systems act on it |
-| **Database write** | **re-execute the mutation** | corruption |
-| **MQTT publish** | **re-actuate a device** | physical consequences |
-| SSH | re-run a command | anything |
-
-The brief's "anything that communicates" collapses the distinction between
-**observing** a protocol and **replaying** it. Gabriel can safely *understand*
-all of them. It cannot safely *re-run* all of them, and the value proposition is
-the second verb.
-
-So replay needs a safety model before it needs more protocols:
-
-- **Classify every captured operation** as read, idempotent write, or
-  non-idempotent — from method and protocol semantics where they are
-  knowable, and marked unknown where they are not.
-- **Non-idempotent replays require confirmation**, showing what will be
-  performed — the same build → show → approve → execute discipline as the AI
-  payload and the installer checksum, applied to actions rather than data.
-- **A dry-run mode** that resolves everything and sends nothing is the correct
-  default for anything unclassified.
-- **Never** extend replay to a protocol whose operations cannot be classified.
-  Understanding it is still valuable; running it is not on offer.
-
-This is not a limitation to be apologised for. It is the difference between a
-tool a developer trusts against staging and one they will run against
-production — and the second is where the money is.
+Three rows exist today. They are the rows the others are built on.
 
 ---
 
-## 5. Memory, and what makes it worth having
+## 6. The constraint: replay is bounded by side effects
 
-Rejecting *"the memory layer for software"* as a headline does not mean
-rejecting memory. It means the headline needs the verb. As a capability, memory
-is real and underexploited:
+This decides how far the behaviour framing can go, and it gets *sharper* as the
+framing gets broader — because **abstraction hides side effects**.
 
-> Gabriel keeps the behaviours somebody thought were worth keeping.
+`POST /payments` visibly does something. "Issue a refund" does not visibly do
+anything; it reads like a description. The vocabulary that makes behaviours
+comprehensible is the same vocabulary that makes them look safe to re-run.
 
-The word doing the work is **kept**, not *recorded*. A tool that stores
-everything its proxy ever saw is a landfill with a search box; the value comes
-from promotion being a deliberate act. A promoted request is a behaviour a human
-decided mattered, in a form that still runs.
+Replaying a `GET` is free. Replaying a payment charges the card twice. And the
+behaviours most worth naming are the ones most dangerous to repeat:
 
-That yields something no log or trace store can offer: **the same behaviour, run
-at two points in time, compared.** "This endpoint's contract changed on the
-14th" is answerable from evidence rather than inferred from dashboards, and
-`gabriel diff` is the smallest version of it that already exists.
+| Behaviour | Replaying it means |
+| --- | --- |
+| Log in | a new session — safe |
+| Search | safe |
+| Check out | **a second order** |
+| Issue a refund | **a second refund** |
+| Publish a queue message | **downstream systems act again** |
+| Deploy a release | **a deployment** |
+| Rotate a secret | **the previous rotation is now wrong** |
+| Provision infrastructure | **a second environment, and a bill** |
 
-## 6. Engineering intelligence, not "AI features"
+So the safety model comes before the breadth:
 
-The right framing, and the shape it takes:
+- **Classify every operation** — read, idempotent write, non-idempotent — from
+  protocol and method semantics where knowable, and **explicitly unknown** where
+  not.
+- **A behaviour inherits the most dangerous classification it contains.** One
+  non-idempotent request makes the whole behaviour non-idempotent, or a
+  safe-sounding name conceals a charge.
+- **Dry run is the default** for anything unclassified: resolve everything, send
+  nothing, show exactly what would have gone.
+- **Non-idempotent replays require confirmation showing what will be
+  performed** — the build → show → approve → execute discipline already applied
+  to AI payloads and installer checksums, applied to actions instead of data.
+- **Some things are understood but never run.** A behaviour whose operations
+  cannot be classified is still worth capturing, naming and diffing. Running it
+  is not on offer.
+
+Not a limitation to apologise for. It is the difference between a tool someone
+trusts against staging and one they will point at production, and the second is
+where this becomes a business.
+
+---
+
+## 7. Intelligence, applied where it belongs
 
 ```text
-traffic → evidence → understanding → replay → automation → verification
+evidence → understanding → replay → verification → improvement
 ```
 
-Most of what gets called AI here is not AI. Retransmissions, duplicate ACKs,
-MTU discovery, certificate expiry and DNS failures are **deterministic
-analyses**. Implementing them as prompts makes them slower, more expensive,
-non-reproducible, and occasionally wrong. Ship them as code; let a model explain
-the result to whoever is not a network engineer.
+Most of what gets called AI in this space is not AI. Retransmissions, duplicate
+ACKs, MTU discovery, certificate expiry, DNS failure, schema drift — all
+**deterministic analyses**. Implementing them as prompts makes them slower,
+costlier, non-reproducible and occasionally wrong. Ship them as code; let a
+model explain the result to whoever is not a network engineer.
 
-The genuinely strong cell is **artifact generation** — capture in, OpenAPI or
-k6 or Playwright out. It needs no values (Level 1 under
+The strong application is **transformation**: a behaviour in, an OpenAPI
+document or k6 script or Playwright test out. It needs no values (Level 1 under
 [information-flow.md](information-flow.md)), the output is checkable by running
-it, and it is a direct extension of promote rather than a new capability bolted
-alongside.
+it, and it is promotion applied again.
 
-Everything here stays inside the four invariants: declared trust level, payload
-bound by hash at approval, an egress record written before the send, and a
+All of it stays inside the four invariants: declared trust level, payload bound
+by hash at approval, an egress record written before the send, and a
 reproducible decision.
 
 ---
 
-## 7. Behaviour, not packets
+## 8. Who this is for
 
-Agreed, and already the design direction — the signature screen in
-[design.md](design.md) is a behaviour timeline, not a packet list.
-
-```text
-not:  Packet 5832  ACK  win=64240  seq=1029384
-but:  Checkout → inventory → pricing → tax → payment ✗ → email skipped
-```
-
-The packets remain underneath and are reachable in one click. What changes is
-the default: the summary before the detail, and the detail available rather than
-imposed.
-
-The addition worth making explicit: **the timeline must show what it inferred
-separately from what it observed.** "Checkout" is a guess about a sequence of
-requests; the requests are facts. A timeline that presents the guess as a fact
-is the fidelity failure this product cannot afford, and the rule for it is
-already written in [vision.md](vision.md) §6.
-
----
-
-## 8. Three technical realities
-
-These do not change with the framing, and they constrain any packet-layer work.
-
-**TLS does not become visible by moving down a layer.** Below the boundary is
-ciphertext. Reading bodies needs session keys or a MITM proxy — which Gabriel
-already has. For the HTTPS traffic that is most of what users care about,
-packet capture would show *less* than the L7 proxy shows today.
-
-**Promiscuous capture inverts the trust model.** Every invariant rests on
-Gabriel seeing only traffic the user routed through it. An interface capture
-holds credentials for services they never chose to inspect and cannot
-enumerate. That is a second product with its own consent question, not a flag
-on this one.
-
-**Privileges break the install story.** libpcap, Npcap, WinDivert and eBPF mean
-drivers, signing, notarisation and asking for root — against an installer that
-today needs none, and on the exact first five minutes the preview exists to
-measure.
-
-Which is why **PCAP import, not live capture, is the move**: no driver, no
-privileges, no new consent model, and it turns *"here is the capture the network
-team sent you"* into something runnable. That sentence is not available to
-Wireshark, and it costs a parser rather than a company.
-
----
-
-## 9. Users
-
-The three personas that share Gabriel's actual job — *reproduce what happened*:
-
-| Persona | The moment | Why nothing else serves it |
+| Persona | The moment | What they have today |
 | --- | --- | --- |
-| **Backend / API developer** | "It worked yesterday" | Nobody kept yesterday's bytes runnable |
-| **QA engineer** | Turning a real flow into a regression test | Hand-written tests encode assumptions, not behaviour |
-| **Support engineer** | Reproducing a customer's failure | A customer's HAR is inert; this one runs |
+| **Backend / API developer** | "It worked yesterday" | Yesterday's bytes, unrunnable |
+| **QA engineer** | Turning a real flow into a regression test | Tests encoding assumptions, not behaviour |
+| **Support engineer** | Reproducing a customer's failure | A HAR that is inert |
 
-The third is the most undervalued in the original brief. Their core task *is*
-Gabriel's core operation, no incumbent does it, and they sit inside companies
-with budget.
+The third is the most undervalued: their core task *is* Gabriel's core
+operation, and they sit inside companies with budget.
 
-The other twenty personas are real people whose problems mostly belong to other
-tools. Serving them all first is how a product becomes a worse version of six
-things.
+A product serving twenty personas serves none of them first.
 
 ---
 
-## 10. Roadmap, gated on evidence
+## 9. Sequence, gated on evidence
 
 **Now.** Tag the preview. Five developers. One question: does the promotion
-moment land without being explained? Nothing below starts before that answers,
-because if the answer is no, none of it helps.
+moment land without being explained? Nothing below starts before that answers —
+if it does not land, none of this helps; if it does, the rest is ordering.
 
-**If the loop lands.** The replay safety model from §4 — before more protocols,
-not after. Then gRPC and GraphQL replay, OpenAPI generation, HTTP/2, PCAP
-import. Each reinforces *evidence you can run*.
+**Then.** The safety model in §6, before more breadth. Behaviours as the
+promotable unit. gRPC and GraphQL replay, OpenAPI generation, PCAP import.
 
-**If teams appear.** Shared collections, org policy on trust levels, egress
-reporting — the last two are by-products of invariants 3 and 4 rather than new
-work.
+**If teams appear.** Shared behaviours, org policy on trust levels, egress
+reporting — the last two are by-products of invariants 3 and 4.
 
-**If organisations appear.** The scale is individual → team → organisation, and
-the thing that changes at the last step is *time*: a body of verified behaviours
-accumulated across services and years. The valuable operation there is not a
-knowledge graph — that is where products go to become unfalsifiable — it is
-**behaviour compared across time**: which contracts changed, when, and what
-broke as a result. Concrete, checkable, and a direct extension of `diff` rather
-than a new discipline.
+**If organisations appear.** What changes at that scale is *time*: behaviours
+compared across months, so a contract change has a date and a cause. That
+extends diff. Deliberately not a knowledge graph, which is where products go to
+stop being falsifiable.
 
-**If a specific customer needs it.** The packet layer, as a separate privileged
-process with its own consent boundary, justified by that customer rather than by
-the category.
+**Not designed here**, named rather than faked: screen specifications, a
+component library, financials, a plugin SDK, compliance roadmaps. Each is
+unblocked by the same thing — somebody using the product.
 
 ---
 
-## 11. What this does not contain
+## 10. Where this goes
 
-Named rather than faked: screen-by-screen specifications, a component library,
-wireframes for features that do not exist, three-year financials, a plugin SDK,
-and compliance roadmaps. Each is unblocked by the same thing — somebody using
-the product — and each would be invention today.
+Engineering produces evidence every second. Almost all of it is discarded,
+duplicated, or forgotten — read once during an incident and never again.
 
----
+Gabriel turns that evidence into behaviours a team can keep: understood,
+trusted, credential-free, and runnable a year later. Evidence stops being where
+an investigation ends and becomes where the engineering starts.
 
-## 12. Where this goes
-
-Gabriel should not aspire to be a better Wireshark. It should become the
-workspace where software behaviour is understood, replayed, verified, explained
-and turned into engineering assets — a place where a PCAP, a HAR, a DevTools
-export and a production trace are all just evidence, and every one of them can
-be run again.
-
-In that future a PCAP, a HAR, a DevTools export and a production trace are all
-just evidence, and Wireshark is one of the things that produces it.
-
-The first step is not a smaller version of that ambition; it is the same claim
-at the smallest scale that can be tested. A developer captures one request,
-promotes it, and watches a file with no credential in it come back
-authenticated. If that lands, everything in this document is a sequencing
-question. If it does not, none of it was the problem — which is why the next
-action is five people and a tag.
-
-Every engineering system leaves evidence, and almost all of it is read once and
-discarded. Gabriel's purpose is to make that evidence trustworthy,
-understandable and reusable — so that evidence stops being where an
-investigation ends and becomes where the engineering starts.
+The first step is not a smaller version of that. It is the same claim at the
+smallest scale that can be tested: a developer captures one request, promotes
+it, and watches a file with no credential in it come back authenticated.
 
 **Evidence you can run.**
