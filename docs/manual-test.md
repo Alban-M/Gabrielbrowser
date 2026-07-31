@@ -88,11 +88,18 @@ gabriel capture start --port 8888 &
 ```
 
 **Pass:** prints the listen address, the session name, and the path to a CA it
-generated. Check the CA is not world-readable:
+generated. Check the permissions:
 
 ```sh
-ls -l gabriel/.runtime/gabriel-ca.pem     # expect -rw------- (0600)
+ls -l gabriel/.runtime/gabriel-ca.key     # expect -rw-------  (0600)
+ls -l gabriel/.runtime/gabriel-ca.pem     # expect -rw-r--r--  (0644)
 ```
+
+Two files, two correct answers. The **key** must be private — that is the one
+whose leak lets somebody forge certificates for any site. The **certificate**
+is public by design and is *supposed* to be readable, since curl and browsers
+have to read it to trust it. An earlier version of this document checked the
+`.pem` for `0600` and reported a failure against correct behaviour.
 
 ## 3. Record real traffic
 
