@@ -282,6 +282,19 @@ configuration values — is additionally scrubbed of URL passwords, JWTs, bearer
 tokens, labelled keys and unlabelled credential-shaped strings. That scrubbing
 is a second line of defence, not the first: read the files.
 
+## The CLI is frozen
+
+As of `v0.1.0-preview.1` the CLI takes **bug fixes only**: CI failures, OAuth
+interoperability defects, security defects, installer and release defects, and
+anything that stops someone reaching a first successful replay.
+
+Everything else — features, ergonomics, output formatting — goes to the desktop
+workbench backlog instead, with the observation that produced it attached. The
+engine is not short of capability; what it is short of is evidence about how
+people use it. See [docs/preview-1.md](docs/preview-1.md) for what the preview
+is measuring and [docs/oauth-interop.md](docs/oauth-interop.md) for the one
+piece of engineering validation still outstanding.
+
 ## Contributing
 
 CI runs the suite on Linux, macOS and Windows, and gates on `cargo fmt --check`,

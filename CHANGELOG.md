@@ -76,5 +76,6 @@ answers exist, the release becomes 0.1.0.
 - WebSocket frames and streamed bodies pass through the proxy uncaptured.
 - OAuth PKCE is verified against a local IdP; interoperability with Google,
   GitHub and Auth0 is untested. GitHub's OAuth apps ignore `code_verifier`.
-- No desktop UI. This is a CLI.
+- No desktop UI. This is a CLI, and it is feature-frozen: bug fixes only
+  until the preview has answered what the workbench should be.
 - Windows does not get the `0600` guarantee; files inherit directory ACLs.
