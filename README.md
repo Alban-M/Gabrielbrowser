@@ -237,6 +237,18 @@ turn redaction from a property of output into a property of *input*, and that
 boundary is much cheaper to design than to retrofit. See
 [docs/information-flow.md](docs/information-flow.md).
 
+**A persisted artifact is complete by default; only a view may be partial.**
+`gabriel capture ls` shows the newest 30 and that is obviously partial — the
+screen is right there. A file is not: one holding a fraction of the log is
+indistinguishable from a whole one, and the person who reads it later is not the
+person who ran the command. So exports and reports are complete unless
+truncation was asked for, and a bundle that caps something says so in its own
+contents. `har export` once defaulted to the newest 1000 with a warning on
+stderr, which failed exactly where it mattered — a scripted export in CI, stderr
+discarded, producing a file someone later trusted. A warning is not a substitute
+for a safe default, because it moves the work of noticing onto the person least
+able to do it.
+
 **Request paths cannot escape the collection.** `promote --to ../../elsewhere`
 is refused rather than obeyed.
 
