@@ -364,9 +364,10 @@ enum HarCommand {
         status: Option<u16>,
         #[arg(long)]
         session: Option<String>,
-        /// How many captures to include, newest first. `0` means all of them.
-        #[arg(short, long, default_value_t = 1000)]
-        limit: usize,
+        /// Only include the newest N captures. Every capture is exported by
+        /// default — an export is an artifact, and a partial one looks whole.
+        #[arg(short, long)]
+        limit: Option<usize>,
     },
     /// Read a HAR file from DevTools, Charles, Proxyman or Firefox into the
     /// capture log, where its requests can be promoted and replayed.
@@ -1193,18 +1194,17 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
                 status_max: None,
                 session,
             };
-            // `--limit 0` means everything. A default limit is right for a
-            // terminal listing and wrong for a file: an export that silently
-            // contains one percent of the log is worse than one that refuses,
-            // because the file looks complete.
-            let effective = if limit == 0 { usize::MAX } else { limit };
-            let captures = store.list(&filter, effective)?;
+            // A default limit is right for a terminal listing and wrong for a
+            // file. A listing showing the newest 30 is obviously partial; a file
+            // holding one percent of the log looks complete, and a warning on
+            // stderr is missed by exactly the scripted export that needs it. So
+            // the default is everything, and truncation only happens when asked
+            // for.
+            let captures = store.list(&filter, limit.unwrap_or(usize::MAX))?;
             let har = gabriel_core::har::export(&captures);
             let text = serde_json::to_string_pretty(&har)?;
 
-            // Only counted when the limit actually bit, so the common case pays
-            // nothing for the warning.
-            let truncated = captures.len() == limit && limit != 0;
+            let truncated = limit.is_some_and(|n| captures.len() == n);
 
             match out {
                 Some(path) => {
@@ -1219,9 +1219,10 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
                     if truncated {
                         let total = store.count().unwrap_or(0);
                         eprintln!(
-                            "{} this is the newest {limit} of {total} captures — the export is \
-                             not complete. Pass --limit 0 for all of them.",
-                            style.yellow("warning:")
+                            "{} --limit was given, so this is the newest {} of {total} \
+                             captures. The export is not complete.",
+                            style.yellow("warning:"),
+                            captures.len()
                         );
                     }
                     // The log holds credentials, and so does anything derived

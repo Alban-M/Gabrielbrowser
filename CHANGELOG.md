@@ -39,7 +39,8 @@ answers exist, the release becomes 0.1.0.
 ### Working with other tools
 
 - **HAR import/export** — bring traffic in from DevTools, Charles or Proxyman;
-  take it back out again. Import tolerates what real exporters actually write:
+  take it back out again. Export is complete by default; `--limit` truncates
+  only when asked, and says so. Import tolerates what real exporters actually write:
   omitted `statusText` or `cache`, `null` in place of a measurement, timezone
   offsets, repeated `Set-Cookie` headers, and unreadable dates (whose file order
   is preserved). A structurally invalid entry fails the file rather than
