@@ -353,6 +353,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 ./scripts/scan-secrets.sh README.md CHANGELOG.md docs/*.md
 ```
 
+Before a release, walk [docs/manual-test.md](docs/manual-test.md) — ten minutes,
+no network needed, and it exercises the loop the automated suite can only test
+in pieces.
+
 A new output surface is expected to bring a `no_secret_leaves_the_process`
 module with it: feed the canaries from `gabriel-testkit` into every field the
 surface renders, and assert on what comes out. Published prose has no canary to
