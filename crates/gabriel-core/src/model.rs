@@ -308,6 +308,18 @@ pub struct Settings {
     /// `curl --cert` takes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_cert: Option<String>,
+    /// Override what replaying this request does to the world.
+    ///
+    /// Method is a good guess and wrong in one common direction: a `POST` used
+    /// for a search or a report is safe to repeat, and being asked to confirm it
+    /// every time would train people to confirm without reading — which is worse
+    /// than not asking. Declaring `effect = "read"` says *I checked*.
+    ///
+    /// It can only be set by a person editing the file. Promotion never writes
+    /// it, because a capture cannot know whether the endpoint it saw was a
+    /// search or a purchase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect: Option<Effect>,
 }
 
 fn default_timeout() -> u64 {
@@ -329,6 +341,7 @@ impl Default for Settings {
             verify_tls: true,
             proxy: None,
             client_cert: None,
+            effect: None,
         }
     }
 }
@@ -501,5 +514,186 @@ mod tests {
         assert!(map.contains_key("content-type"));
         map.remove("CONTENT-TYPE");
         assert!(map.is_empty());
+    }
+}
+
+/// What running a request does to the world.
+///
+/// Replay is the product's whole proposition, and it is only safe for
+/// operations that can be repeated. A captured `GET` costs nothing to run
+/// again; a captured payment charges the card twice. Gabriel has been safe so
+/// far by accident — people replay reads while debugging — and accident is not
+/// a safety model.
+///
+/// Derived from RFC 9110 §9.2: *safe* methods do not change state, *idempotent*
+/// methods may be repeated without additional effect beyond the first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Effect {
+    /// Safe: reads nothing into existence. Free to repeat.
+    Read,
+    /// Changes state, but repeating changes nothing more than doing it once.
+    Idempotent,
+    /// Repeating it happens again — a second order, a second charge.
+    Unsafe,
+    /// A method with no defined semantics. Treated as `Unsafe`, because the
+    /// alternative is guessing on the user's behalf about their money.
+    Unknown,
+}
+
+impl Effect {
+    /// Does replaying this need the user to say so?
+    pub fn needs_confirmation(self) -> bool {
+        matches!(self, Effect::Unsafe | Effect::Unknown)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Effect::Read => "read",
+            Effect::Idempotent => "idempotent",
+            Effect::Unsafe => "unsafe",
+            Effect::Unknown => "unknown",
+        }
+    }
+
+    /// What running it does, in words a person can weigh.
+    pub fn consequence(self) -> &'static str {
+        match self {
+            Effect::Read => "reads only; safe to repeat",
+            Effect::Idempotent => "changes state, but repeating it changes nothing further",
+            Effect::Unsafe => "performs the action again — a second one",
+            Effect::Unknown => "has no defined semantics, so it is treated as unrepeatable",
+        }
+    }
+}
+
+impl RequestSpec {
+    /// What replaying this request does: what the author declared, or what the
+    /// method implies.
+    pub fn effect(&self) -> Effect {
+        self.settings
+            .effect
+            .unwrap_or_else(|| effect_of_method(&self.method))
+    }
+}
+
+/// Classify a method by RFC 9110 semantics.
+///
+/// Method alone is what the wire tells us. It is right far more often than not
+/// and wrong in one common direction — a `POST` used for a search is safe in
+/// practice — which is what `[settings] effect` exists to correct. It never errs
+/// the other way: nothing safe-by-method performs an action.
+pub fn effect_of_method(method: &str) -> Effect {
+    match method.to_ascii_uppercase().as_str() {
+        "GET" | "HEAD" | "OPTIONS" | "TRACE" => Effect::Read,
+        "PUT" | "DELETE" => Effect::Idempotent,
+        "POST" | "PATCH" => Effect::Unsafe,
+        _ => Effect::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use super::*;
+
+    #[test]
+    fn safe_methods_are_reads() {
+        for m in ["GET", "get", "HEAD", "OPTIONS", "TRACE"] {
+            assert_eq!(effect_of_method(m), Effect::Read, "{m}");
+        }
+    }
+
+    /// PUT and DELETE change the world, but doing them twice leaves it where
+    /// doing them once did — so a replay is recoverable in a way a second POST
+    /// is not.
+    #[test]
+    fn put_and_delete_are_idempotent_not_safe() {
+        assert_eq!(effect_of_method("PUT"), Effect::Idempotent);
+        assert_eq!(effect_of_method("DELETE"), Effect::Idempotent);
+        assert!(!Effect::Idempotent.needs_confirmation());
+    }
+
+    #[test]
+    fn post_and_patch_need_confirmation() {
+        assert_eq!(effect_of_method("POST"), Effect::Unsafe);
+        assert_eq!(effect_of_method("PATCH"), Effect::Unsafe);
+        assert!(Effect::Unsafe.needs_confirmation());
+    }
+
+    /// The direction of the default matters more than the default itself: an
+    /// unrecognised method is assumed dangerous, because being wrong the other
+    /// way costs somebody real money.
+    #[test]
+    fn an_unknown_method_is_treated_as_unrepeatable() {
+        for m in ["LINK", "PURGE", "MKCOL", ""] {
+            assert_eq!(effect_of_method(m), Effect::Unknown, "{m}");
+            assert!(Effect::Unknown.needs_confirmation(), "{m}");
+        }
+    }
+
+    #[test]
+    fn every_effect_says_what_running_it_does() {
+        for e in [
+            Effect::Read,
+            Effect::Idempotent,
+            Effect::Unsafe,
+            Effect::Unknown,
+        ] {
+            assert!(!e.consequence().is_empty(), "{e:?}");
+            assert!(!e.as_str().is_empty(), "{e:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod effect_override_tests {
+    use super::*;
+
+    fn spec(method: &str) -> RequestSpec {
+        RequestSpec::new(method, "https://api.test/x")
+    }
+
+    #[test]
+    fn method_decides_when_nothing_is_declared() {
+        assert_eq!(spec("GET").effect(), Effect::Read);
+        assert_eq!(spec("POST").effect(), Effect::Unsafe);
+    }
+
+    /// The case that makes the feature liveable: a search implemented as POST.
+    /// Without this, every run of it would ask, and a prompt people always
+    /// accept is worse than no prompt at all.
+    #[test]
+    fn a_declared_effect_wins() {
+        let mut search = spec("POST");
+        search.settings.effect = Some(Effect::Read);
+        assert_eq!(search.effect(), Effect::Read);
+        assert!(!search.effect().needs_confirmation());
+    }
+
+    /// It works in the cautious direction too — a GET that triggers something.
+    #[test]
+    fn a_declaration_can_also_tighten() {
+        let mut trigger = spec("GET");
+        trigger.settings.effect = Some(Effect::Unsafe);
+        assert!(trigger.effect().needs_confirmation());
+    }
+
+    #[test]
+    fn the_declaration_round_trips_through_toml() {
+        let mut original = spec("POST");
+        original.settings.effect = Some(Effect::Read);
+
+        let text = toml::to_string(&original).expect("serialise");
+        assert!(text.contains("effect = \"read\""), "{text}");
+
+        let parsed: RequestSpec = toml::from_str(&text).expect("parse");
+        assert_eq!(parsed.effect(), Effect::Read);
+    }
+
+    /// Absent means absent: a file nobody has edited gains no key.
+    #[test]
+    fn nothing_is_written_when_nothing_is_declared() {
+        let text = toml::to_string(&spec("GET")).expect("serialise");
+        assert!(!text.contains("effect"), "{text}");
     }
 }

@@ -243,6 +243,14 @@ struct RunArgs {
     #[arg(long)]
     show_secrets: bool,
 
+    /// Resolve everything and send nothing. Prints exactly what would go.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Run requests that perform an action again without asking first.
+    #[arg(long, short = 'y')]
+    yes: bool,
+
     /// Truncate the printed body at this many characters.
     #[arg(long, default_value_t = 4000)]
     body_limit: usize,
@@ -469,6 +477,79 @@ fn redactor_for(secrets: Vec<String>, show_secrets: bool) -> Redactor {
         Redactor::default()
     } else {
         Redactor::new(secrets)
+    }
+}
+
+/// Whether a request may be sent, given what running it does to the world.
+enum Proceed {
+    Send,
+    Skipped,
+}
+
+/// Decide whether to replay something that performs an action.
+///
+/// A read is sent without comment. Anything that acts is announced, and outside
+/// a terminal it is refused rather than guessed at — a CI job that silently
+/// re-submits an order is the failure this exists to prevent, and prompting
+/// where nobody can answer would hang the build instead.
+fn confirm_effect(
+    spec: &gabriel_core::model::RequestSpec,
+    id: &str,
+    args: &RunArgs,
+    style: &Style,
+) -> Result<Proceed> {
+    use std::io::IsTerminal;
+
+    let effect = spec.effect();
+    if !effect.needs_confirmation() || args.dry_run || args.yes {
+        return Ok(Proceed::Send);
+    }
+
+    eprintln!(
+        "{} `{id}` is {} {} — {}",
+        style.yellow("careful:"),
+        spec.method,
+        style.bold(effect.as_str()),
+        effect.consequence()
+    );
+
+    if !std::io::stdin().is_terminal() {
+        // Two different questions were asked, so they get two answers.
+        //
+        // `run <name>` is a request to run that specific thing; refusing it
+        // silently would be answering a question nobody asked. `run --all` is a
+        // request to exercise the collection, and failing the whole run because
+        // it contains a POST would push every CI config to a blanket --yes,
+        // which is the outcome this exists to prevent. So the collection run
+        // skips it, counts it, and says so.
+        if args.all {
+            eprintln!(
+                "  {}",
+                style.dim("skipped — no terminal to confirm at; pass --yes to include it")
+            );
+            return Ok(Proceed::Skipped);
+        }
+        bail!(
+            "refusing to run `{id}` without a terminal to ask at.\n\
+             Pass --yes to run it, --dry-run to see what it would send, or set\n\
+             `[settings] effect = \"read\"` in the file if repeating it is in fact safe."
+        );
+    }
+
+    eprint!("  run it? [y/N] ");
+    use std::io::Write as _;
+    let _ = std::io::stderr().flush();
+
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .context("reading the answer")?;
+
+    if answer.trim().eq_ignore_ascii_case("y") {
+        Ok(Proceed::Send)
+    } else {
+        eprintln!("  {}", style.dim("skipped"));
+        Ok(Proceed::Skipped)
     }
 }
 
@@ -1527,6 +1608,7 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
     let mut executor = Executor::new();
     let mut all_passed = true;
     let mut errors = 0usize;
+    let mut skipped = 0usize;
     let wants_report = args.junit.is_some() || args.html.is_some();
     let mut cases: Vec<report::CaseResult> = Vec::new();
     let started_ms = gabriel_core::now_ms();
@@ -1612,6 +1694,30 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                 println!();
             }
             println!("{}", style.bold(&format!("── {} ", entry.id)));
+        }
+
+        // Replay is the whole proposition, and it is only free for operations
+        // that can be repeated. Decided before anything is sent.
+        match confirm_effect(&spec, &entry.id, &args, style)? {
+            Proceed::Send => {}
+            Proceed::Skipped => {
+                skipped += 1;
+                continue;
+            }
+        }
+
+        if args.dry_run {
+            let (prepared, _has_body) = {
+                let mut ctx = RunContext::new(&mut resolver, &mut sessions)
+                    .with_session(session.clone())
+                    .with_base_dir(collection.root());
+                executor
+                    .prepare(&spec, &mut ctx)
+                    .with_context(|| format!("preparing `{}`", entry.id))?
+            };
+            let redactor = redactor_for(resolver.used_secrets(), args.show_secrets);
+            output::print_dry_run(&prepared, &spec.effect(), style, &redactor);
+            continue;
         }
 
         let attempt = {
@@ -1717,6 +1823,17 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                 .with_context(|| format!("writing {}", path.display()))?;
             eprintln!("{} {}", style.dim("html report"), path.display());
         }
+    }
+
+    // Declining to repeat an action is a decision, not a failure — but a run
+    // that quietly did less than it looks like it did is exactly the kind of
+    // partial artifact this project keeps removing, so it is said out loud.
+    if skipped > 0 {
+        eprintln!(
+            "{} {skipped} of {} request(s) were not run — you declined to repeat them",
+            style.yellow("note:"),
+            targets.len()
+        );
     }
 
     if errors > 0 {

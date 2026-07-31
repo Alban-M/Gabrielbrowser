@@ -728,3 +728,37 @@ mod no_secret_leaves_the_process {
         assert_no_secret("piped output", &printed(true, false));
     }
 }
+
+/// Print exactly what a request would send, without sending it.
+///
+/// Everything is resolved first — variables, secrets, session cookies — so this
+/// is the real payload rather than the template. Secrets are masked on the way
+/// out, like every other surface.
+pub fn print_dry_run(
+    request: &gabriel_engine::SentRequest,
+    effect: &gabriel_core::model::Effect,
+    style: &Style,
+    redactor: &Redactor,
+) {
+    println!(
+        "{} {} {}",
+        style.dim("would send"),
+        style.bold(&request.method),
+        style.safe(&redactor.apply(&request.url))
+    );
+    println!("  {} {}", style.dim("effect:"), effect.as_str());
+
+    for (name, value) in &request.headers {
+        println!(
+            "  {}: {}",
+            style.dim(name),
+            style.safe(&redactor.apply(value))
+        );
+    }
+    if let Some(body) = &request.body {
+        println!();
+        println!("{}", style.safe(&redactor.apply(body)));
+    }
+    println!();
+    println!("{}", style.dim("nothing was sent"));
+}

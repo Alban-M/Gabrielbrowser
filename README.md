@@ -297,6 +297,22 @@ information-flow invariants have `gabriel-testkit` behind them, while this one
 rests on review. "Does this message assert something the code did not check" is
 not mechanically decidable, so it is enforced by whoever reads the diff.
 
+**Replay is bounded by what it does to the world.** Replaying a `GET` is free;
+replaying a payment charges the card twice. Gabriel classifies every request by
+RFC 9110 method semantics — read, idempotent, unsafe — and one that performs an
+action asks before repeating it, says what repeating means, and refuses rather
+than guessing where there is no terminal to ask at. `--dry-run` resolves
+everything and sends nothing. `--yes` is the explicit opt-in, which is the right
+shape for CI: a config that says `--yes` is a reviewable decision, whereas a
+prompt nobody can answer is a hung build.
+
+`run --all` skips what it cannot confirm and says how many, because failing a
+whole collection run over one `POST` would push every CI config to a blanket
+`--yes` and defeat the point. Method is a good guess and wrong in one common
+direction — a `POST` used for search — so `[settings] effect = "read"` lets the
+author say *I checked*. Promotion never writes it: a capture cannot know whether
+the endpoint it saw was a search or a purchase.
+
 **Request paths cannot escape the collection.** `promote --to ../../elsewhere`
 is refused rather than obeyed.
 
