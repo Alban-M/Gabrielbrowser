@@ -1,12 +1,18 @@
-# Evidence you can run
+# The engineering evidence platform
 
-The strategy for what Gabriel becomes, and the constraint that decides how far
-it goes.
+The strategy for what Gabriel becomes, the category it belongs in, and the
+constraint that decides how far it goes.
+
+Network intelligence is a subcategory of this, not the ceiling. Software
+produces evidence constantly — captured traffic, HARs, PCAPs, traces, logs,
+failed CI runs. Almost all of it is read once and thrown away. Gabriel's purpose
+is to turn that evidence into something reusable, and its differentiator is that
+some of it can be **run again**.
 
 Written the day CI first went green, before the first tag, with 11,687 lines of
 shipped code operating entirely at layer 7, no packet-capture dependency of any
 kind, and no user outside the machine that wrote it. Numbers that sound like
-measurements were measured; everything else is a hypothesis, and §10 says which.
+measurements were measured; everything else is a hypothesis, and §11 says which.
 
 ---
 
@@ -33,18 +39,38 @@ Gabriel is not in the packet-analysis category and should stop measuring itself
 against its incumbents. It is the layer above them, and they are its inputs.
 
 ```text
-PCAP · HAR · DevTools export · proxy log · Envoy access log · OpenAPI · cURL
-                              ↓
-                          evidence
-                              ↓
-                   ┌──────────┴──────────┐
-                   │                     │
-              understand              re-run
-                   │                     │
-                   └──────────┬──────────┘
-                              ↓
-        tests · OpenAPI · load scripts · docs · incident reports
+runnable evidence                        contextual evidence
+PCAP · HAR · DevTools export ·           OTel traces · Jaeger · Datadog ·
+proxy capture · cURL · OpenAPI           k8s events · cloud audit · CI logs
+        │                                          │
+        │  contains the bytes                      │  describes what happened
+        ▼                                          ▼
+    ┌───────────────────────────────────────────────────┐
+    │                    evidence                        │
+    └───────────────────────────────────────────────────┘
+              │                              │
+          re-run                        understand · correlate
+              │                              │
+              └──────────────┬───────────────┘
+                             ▼
+     tests · OpenAPI · load scripts · docs · incident reports
 ```
+
+**These two kinds must not be conflated, and the expanded source list is where
+that mistake gets made.** A PCAP and a HAR contain the actual bytes: they can be
+replayed. An OpenTelemetry span, a Jaeger trace, a Datadog export and a
+Kubernetes event are *descriptions* — sampled, body-less, often lossy. There is
+nothing in them to send.
+
+Ingesting them is worth doing, for correlation: *this trace points at that
+captured request; here is the request, and here it is running again.* But a
+product that treats traces as first-class evidence and cannot run them has
+quietly become an observability tool — understanding without execution, which is
+the passive category the north star exists to reject. The market already has
+excellent observability.
+
+So: **contextual evidence enriches runnable evidence. It never substitutes for
+it, and the interface must never imply that it can.**
 
 Wireshark, Charles, DevTools and the rest become **evidence sources**, not
 rivals. That is a strictly better position than "a nicer Wireshark", because it
@@ -72,7 +98,7 @@ The platform statement, and the thing worth building toward:
 | A production trace | a regression test in CI | future |
 
 One row of that table exists today, and it is the row the others are built on.
-The direction is right; the sequencing in §9 is what makes it survivable.
+The direction is right; the sequencing in §10 is what makes it survivable.
 
 ---
 
@@ -123,7 +149,25 @@ production — and the second is where the money is.
 
 ---
 
-## 5. Engineering intelligence, not "AI features"
+## 5. Memory, and what makes it worth having
+
+Rejecting *"the memory layer for software"* as a headline does not mean
+rejecting memory. It means the headline needs the verb. As a capability, memory
+is real and underexploited:
+
+> Gabriel keeps the behaviours somebody thought were worth keeping.
+
+The word doing the work is **kept**, not *recorded*. A tool that stores
+everything its proxy ever saw is a landfill with a search box; the value comes
+from promotion being a deliberate act. A promoted request is a behaviour a human
+decided mattered, in a form that still runs.
+
+That yields something no log or trace store can offer: **the same behaviour, run
+at two points in time, compared.** "This endpoint's contract changed on the
+14th" is answerable from evidence rather than inferred from dashboards, and
+`gabriel diff` is the smallest version of it that already exists.
+
+## 6. Engineering intelligence, not "AI features"
 
 The right framing, and the shape it takes:
 
@@ -149,7 +193,7 @@ reproducible decision.
 
 ---
 
-## 6. Behaviour, not packets
+## 7. Behaviour, not packets
 
 Agreed, and already the design direction — the signature screen in
 [design.md](design.md) is a behaviour timeline, not a packet list.
@@ -171,7 +215,7 @@ already written in [vision.md](vision.md) §6.
 
 ---
 
-## 7. Three technical realities
+## 8. Three technical realities
 
 These do not change with the framing, and they constrain any packet-layer work.
 
@@ -198,7 +242,7 @@ Wireshark, and it costs a parser rather than a company.
 
 ---
 
-## 8. Users
+## 9. Users
 
 The three personas that share Gabriel's actual job — *reproduce what happened*:
 
@@ -218,7 +262,7 @@ things.
 
 ---
 
-## 9. Roadmap, gated on evidence
+## 10. Roadmap, gated on evidence
 
 **Now.** Tag the preview. Five developers. One question: does the promotion
 moment land without being explained? Nothing below starts before that answers,
@@ -232,13 +276,21 @@ import. Each reinforces *evidence you can run*.
 reporting — the last two are by-products of invariants 3 and 4 rather than new
 work.
 
+**If organisations appear.** The scale is individual → team → organisation, and
+the thing that changes at the last step is *time*: a body of verified behaviours
+accumulated across services and years. The valuable operation there is not a
+knowledge graph — that is where products go to become unfalsifiable — it is
+**behaviour compared across time**: which contracts changed, when, and what
+broke as a result. Concrete, checkable, and a direct extension of `diff` rather
+than a new discipline.
+
 **If a specific customer needs it.** The packet layer, as a separate privileged
 process with its own consent boundary, justified by that customer rather than by
 the category.
 
 ---
 
-## 10. What this does not contain
+## 11. What this does not contain
 
 Named rather than faked: screen-by-screen specifications, a component library,
 wireframes for features that do not exist, three-year financials, a plugin SDK,
@@ -247,7 +299,7 @@ the product — and each would be invention today.
 
 ---
 
-## 11. Where this goes
+## 12. Where this goes
 
 Gabriel should not aspire to be a better Wireshark. It should become the
 workspace where software behaviour is understood, replayed, verified, explained
@@ -255,13 +307,19 @@ and turned into engineering assets — a place where a PCAP, a HAR, a DevTools
 export and a production trace are all just evidence, and every one of them can
 be run again.
 
-In that future Wireshark is an import format.
+In that future a PCAP, a HAR, a DevTools export and a production trace are all
+just evidence, and Wireshark is one of the things that produces it.
 
 The first step is not a smaller version of that ambition; it is the same claim
 at the smallest scale that can be tested. A developer captures one request,
 promotes it, and watches a file with no credential in it come back
 authenticated. If that lands, everything in this document is a sequencing
-question. If it does not, none of it was the problem.
+question. If it does not, none of it was the problem — which is why the next
+action is five people and a tag.
 
-That is why the next action is five people and a tag, and why the sentence to
-build toward is the one at the top.
+Every engineering system leaves evidence, and almost all of it is read once and
+discarded. Gabriel's purpose is to make that evidence trustworthy,
+understandable and reusable — so that evidence stops being where an
+investigation ends and becomes where the engineering starts.
+
+**Evidence you can run.**
