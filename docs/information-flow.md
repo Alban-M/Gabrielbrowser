@@ -1,7 +1,7 @@
 # Information flow
 
-Three invariants govern Gabriel. The first is implemented and tested. The
-other two are written down before the subsystem that will need them exists,
+Four invariants govern Gabriel. The first is implemented and tested. The
+others are written down before the subsystem that will need them exists,
 because an egress boundary is much cheaper to design than to retrofit.
 
 > **1. No secret leaves the process.**
@@ -21,6 +21,13 @@ because an egress boundary is much cheaper to design than to retrofit.
 > contained. Invariants 1 and 2 are claims; this is what makes them checkable
 > by the person they protect.
 
+> **4. Every information-flow *decision* is reproducible.**
+> Given a retained record, Gabriel can say which feature asked, which trust
+> level applied, which provider was chosen, which rule removed each excluded
+> field, which payload hash was approved, and which response belongs to it.
+> The decision is reproducible; the model's answer is not, and the invariant
+> deliberately does not claim otherwise.
+
 The symmetry is the point. Today the redactor sits between the engine and the
 output. Tomorrow it sits between the workbench and the model. Same philosophy,
 opposite direction.
@@ -34,8 +41,11 @@ today                          tomorrow
   output                         model
 ```
 
-Invariant 3 is what turns the other two from promises into something a user
-can verify. It is also the one with a mechanism attached, described below.
+Invariant 3 is what turns the first two from promises into something a user
+can verify. Invariant 4 is what makes the answer specific enough to act on:
+"a token was removed" is reassurance, "the vault-value rule removed the
+`Authorization` header" is an explanation. Both have mechanisms attached,
+described below.
 
 ## What leaves the machine today
 
@@ -141,9 +151,11 @@ Two consequences worth designing for rather than discovering:
 - **The record is written before the send, not after.** A crash mid-request
   must leave a trace; a log written on success only cannot answer "what did it
   send when it hung?"
-- **The record is itself an output surface.** It describes what was sent, so it
-  gets an allow-list and canaries like everything else. It should be readable
-  the way a feedback bundle is readable, and it belongs *in* the bundle.
+- **The record is itself an output surface.** A prompt and a prompt log are
+  two information flows, not one, so the allow-list, the canaries and the
+  retention policy all apply to both. It should be readable the way a feedback
+  bundle is readable — though whether it *ships* in one is a separate question,
+  answered under Retention below.
 
 What a user should be able to see, per request:
 
@@ -159,6 +171,45 @@ payload       the exact bytes, on request
 "Excluded" matters as much as "included": showing what was *removed* is what
 demonstrates the redactor ran, and it is the difference between a user trusting
 the claim and verifying it.
+
+### What invariant 4 costs
+
+Most of invariant 4 is a matter of writing enough down at the moment of the
+decision. One clause is not, and it is worth naming the cost before agreeing
+to it.
+
+**"Which rule removed each excluded field"** cannot be answered by today's
+redaction code. Both `scrub` and `Redactor::apply` have the shape
+`&str -> String`: they take text, return text, and keep no record of which of
+the four stages fired or what it matched. Attribution needs each rule to be
+named and to report its own hits — closer to `&str -> (String, Vec<Removal>)`,
+where a `Removal` carries the rule, the field, and the span.
+
+That is a contained change and a worthwhile one, but it is a change to a
+security-critical path that is currently simple and heavily tested. It should
+be made deliberately, with the canaries extended to assert that a `Removal`
+never carries the removed value itself — the record of a redaction is an
+obvious place to accidentally reintroduce the thing that was redacted.
+
+Until then, invariant 4 is satisfied at field granularity ("the `Authorization`
+header was excluded") but not at rule granularity ("by the vault-value rule").
+That distinction should be visible in the record rather than papered over.
+
+## Retention
+
+The record is audit evidence, and an audit log that cannot be deleted is
+surveillance. Defaults:
+
+- **Local only.** Never synchronised, never uploaded, no exceptions.
+- **Encrypted at rest** if it persists across sessions — it describes what the
+  user was working on, which is sensitive even when no value in it is.
+- **Rotating**, by age or count, configurable.
+- **Clearable in one action**, from the interface, without a confirmation maze.
+- **Included in a feedback bundle only after explicit review.** This is stricter
+  than the rule for everything else in the bundle, deliberately: the rest of a
+  bundle is diagnostic, while this is a history of activity. A user who has
+  already agreed to send diagnostics has not thereby agreed to send a record of
+  what they worked on.
 
 ## Trust level before model
 

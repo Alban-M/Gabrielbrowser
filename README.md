@@ -227,10 +227,10 @@ name functions and files rather than values.
 record of traffic, which is what makes it interoperable and replayable — and
 there is a test that says so, so it stays a decision rather than an oversight.
 
-Two further invariants are written down but not yet needed: **no secret leaves
-the machine without explicit user approval**, and **the user can always
-determine why a piece of information left the machine.** Nothing today violates
-them — there is
+Three further invariants are written down but not yet needed: **no secret
+leaves the machine without explicit user approval**, **the user can always
+determine why a piece of information left the machine**, and **every
+information-flow decision is reproducible.** Nothing today violates them — there is
 no telemetry, no update check and no crash reporting, and every host in the
 shipped code is a test domain or loopback. It exists because the AI layer will
 turn redaction from a property of output into a property of *input*, and that
