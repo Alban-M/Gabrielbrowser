@@ -30,9 +30,9 @@ macOS and Linux:
 curl -fsSL https://raw.githubusercontent.com/Alban-M/gabriel-releases/main/install.sh | sh
 ```
 
-Binaries are published to a separate public repository,
-[gabriel-releases](https://github.com/Alban-M/gabriel-releases) — this one holds
-the source and stays private.
+Binaries are published to a separate repository,
+[gabriel-releases](https://github.com/Alban-M/gabriel-releases), so that
+installing needs nothing from here. This one holds the source.
 
 It works out the platform, verifies the SHA-256 before copying anything, clears
 the macOS quarantine flag, and refuses to install a download it cannot verify.
@@ -46,7 +46,7 @@ clone:
 cargo install --path crates/gabriel-cli
 ```
 
-Or straight from the repository, which needs access while it is private:
+Or straight from the repository:
 
 ```bash
 cargo install --git https://github.com/Alban-M/Gabrielbrowser gabriel-cli
@@ -367,6 +367,12 @@ piece of engineering validation still outstanding.
 
 ## Contributing
 
+**A local pass is not a cross-platform pass.** `cargo test` green on one machine
+means that machine can build Gabriel; it says nothing about the others. At the
+time of writing CI confirms Linux and macOS green and **Windows failing** at the
+test step — a real defect, not a flake, and a release blocker. The distinction is
+worth keeping in mind whenever this README claims a number.
+
 CI runs the suite on Linux, macOS and Windows, and gates on `cargo fmt --check`,
 `cargo clippy -- -D warnings`, a dependency advisory scan, and the installer
 regression suite:
@@ -416,7 +422,7 @@ obvious on the first execution.
 ## Building
 
 ```bash
-cargo test          # 327 tests
+cargo test          # 394 tests
 cargo build --release
 ```
 

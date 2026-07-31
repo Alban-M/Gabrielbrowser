@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # So "can a runner start at all" can be asked without pushing a commit —
+  # a question that turned out to matter more than any test result.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

@@ -179,7 +179,7 @@ Both ids are required; there is no "diff against the previous one" shorthand.
 gabriel vault set api_token "sk-live-EXAMPLE-1234567890"
 gabriel vault ls                 # names only, never values
 gabriel curl users/me            # credentials masked unless --show-secrets
-gabriel jwt "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJleHAiOjE3MDAwMDAwMDB9.sig"
+gabriel jwt "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJleHAiOjE3MDAwMDAwMDB9.sig"  # scan-secrets:allow — a fabricated token, signature literally "sig"
 ```
 
 **Pass:** `vault ls` prints `api_token` and no value. `jwt` decodes the claims,

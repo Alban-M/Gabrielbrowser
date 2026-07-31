@@ -22,10 +22,9 @@ cosign verify-blob \
   gabriel-<target>.tar.gz
 ```
 
-The identity names the repository the binaries are built from. It is a private
-repository, so the link will 404 for you — that is expected, and it does not
-weaken the check: what you are verifying is that this artifact came out of that
-workflow and not from somewhere else.
+The identity names the repository the binaries are built from, and you can open
+it and read the workflow that produced them. What the check proves is that this
+artifact came out of that workflow and not from somewhere else.
 
 `gabriel-sbom.cdx.json` is a CycloneDX bill of materials listing every
 dependency in the shipped binary with its licence and package URL.
