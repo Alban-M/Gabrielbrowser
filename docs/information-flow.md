@@ -187,9 +187,33 @@ where a `Removal` carries the rule, the field, and the span.
 
 That is a contained change and a worthwhile one, but it is a change to a
 security-critical path that is currently simple and heavily tested. It should
-be made deliberately, with the canaries extended to assert that a `Removal`
-never carries the removed value itself — the record of a redaction is an
-obvious place to accidentally reintroduce the thing that was redacted.
+be made deliberately.
+
+A `Removal` must be structurally incapable of holding what it describes. Not
+"we remember not to put the value in it" — no field for it to go in:
+
+```text
+Removal
+  field       Authorization
+  rule        vault-value
+  reason      matched a value resolved from the vault
+  location    span in the redacted output
+  size        bucketed, see below
+```
+
+The value is absent by construction. Audit systems routinely end up recording
+`Removed: Authorization: Bearer sk-live-…`, which defeats the purpose
+completely, and the reliable defence is a type that cannot express it rather
+than a reviewer who notices. The constructor should take the value only to
+measure it and never store it, and the canaries should assert that a serialised
+`Removal` contains no canary.
+
+One further edge: **exact length is itself a disclosure.** Knowing a password
+was eleven characters narrows a search meaningfully, and for a short secret the
+length is a large fraction of what there is to know. Record a bucket — "8–16" —
+or omit size entirely unless a concrete need for it appears. It is the kind of
+detail that is free to get right now and awkward to change once records exist
+in the field.
 
 Until then, invariant 4 is satisfied at field granularity ("the `Authorization`
 header was excluded") but not at rule granularity ("by the vault-value rule").
@@ -261,3 +285,30 @@ being on the roadmap early rather than late.
 
 None of these are answerable by code, and all of them are cheaper to answer now
 than after the first feature ships.
+
+## Status: version 1.0
+
+These four invariants are settled. Conceptually:
+
+1. Protect information leaving the **process**.
+2. Protect information leaving the **machine**.
+3. Make every information-flow decision **inspectable**.
+4. Make every information-flow decision **reproducible**.
+
+Everything else in this document is an implementation technique supporting one
+of them.
+
+A change to the invariants themselves has to satisfy **both** of:
+
+1. It addresses something observed — a real user, a security review, a threat
+   model — rather than something imagined.
+2. It cannot be expressed as a clarification or implementation note under one of
+   the existing four.
+
+Failing either test, it is not a new invariant. Write it as a note under the one
+it belongs to. A rule set earns its authority by being small enough to remember
+and stable enough to rely on; a document that grows an invariant per design
+discussion is a list of aspirations, and nobody defends an aspiration.
+
+The next thing that should change this document is a preview user asking a
+question it cannot answer.
