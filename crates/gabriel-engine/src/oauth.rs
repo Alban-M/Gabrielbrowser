@@ -376,7 +376,33 @@ async fn post_token_request(token_url: &str, form: Vec<(&str, String)>) -> Resul
         .map_err(|e| EngineError::Auth(format!("token response was not the expected JSON: {e}")))
 }
 
+/// Is this URL safe to hand to a platform "open" helper?
+///
+/// A URL is not a trusted string: it comes from a request file, and request
+/// files are shared, committed and downloaded. The dangerous cases are a
+/// non-web scheme (`file:`, `javascript:`) and control characters. Ordinary URL
+/// punctuation — `&`, `?`, `=`, `%` — is *not* dangerous and must not be
+/// rejected, since every real authorize URL is full of it.
+///
+/// Shell metacharacters are handled by not invoking a shell. See
+/// [`open_in_browser`].
+pub(crate) fn is_safe_to_open(url: &str) -> bool {
+    let lowered = url.to_ascii_lowercase();
+    if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
+        return false;
+    }
+    // Control characters have no business in a URL, and whitespace is how an
+    // extra argument would be smuggled into a command line.
+    !url.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
 fn open_in_browser(url: &str) {
+    // A URL that cannot be handed to a shell-adjacent helper safely is simply
+    // not handed to it. It has already been printed.
+    if !is_safe_to_open(url) {
+        return;
+    }
+
     // The three named platforms cover CI and every likely developer machine;
     // anywhere else falls through and relies on the URL having been printed,
     // rather than failing to compile.
@@ -385,7 +411,12 @@ fn open_in_browser(url: &str) {
     } else if cfg!(target_os = "linux") {
         Some(("xdg-open", vec![url]))
     } else if cfg!(target_os = "windows") {
-        Some(("cmd", vec!["/C", "start", "", url]))
+        // Deliberately not `cmd /C start`: cmd.exe reparses its arguments after
+        // Rust has escaped them, and Rust's escaping targets the C runtime, not
+        // the shell. A URL from a shared request file would then be able to run
+        // commands. `explorer` takes the URL as an argument and no shell is
+        // involved.
+        Some(("explorer", vec![url]))
     } else {
         None
     };
@@ -654,5 +685,47 @@ mod tests {
             .build()
             .expect("runtime")
             .block_on(future)
+    }
+}
+
+#[cfg(test)]
+mod browser_open_is_not_a_shell {
+    use super::is_safe_to_open;
+
+    /// The regression that matters most: a real authorize URL is full of `&`
+    /// and `=`, and an over-eager filter would silently stop `gabriel auth`
+    /// opening a browser on every platform. Blocking shell metacharacters is
+    /// the wrong layer — not invoking a shell is the right one.
+    #[test]
+    fn real_authorize_urls_open() {
+        for good in [
+            "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=x.apps.googleusercontent.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fcallback&state=abc&code_challenge=xyz&code_challenge_method=S256&scope=openid%20email",
+            "https://tenant.eu.auth0.com/authorize?audience=https%3A%2F%2Ftenant%2Fapi&scope=openid",
+            "http://127.0.0.1:8765/callback",
+        ] {
+            assert!(is_safe_to_open(good), "refused a legitimate URL: {good}");
+        }
+    }
+
+    #[test]
+    fn only_http_schemes_are_opened() {
+        for hostile in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "vbscript:msgbox",
+            "data:text/html,<script>",
+            "\\\\server\\share",
+        ] {
+            assert!(!is_safe_to_open(hostile), "opened: {hostile}");
+        }
+    }
+
+    /// Whitespace is how a second argument gets smuggled onto a command line,
+    /// and a control character is how an escape sequence arrives.
+    #[test]
+    fn whitespace_and_control_characters_are_refused() {
+        assert!(!is_safe_to_open("https://example.com/ --other-flag"));
+        assert!(!is_safe_to_open("https://example.com/\u{1b}[2K"));
+        assert!(!is_safe_to_open("https://example.com/\nmore"));
     }
 }

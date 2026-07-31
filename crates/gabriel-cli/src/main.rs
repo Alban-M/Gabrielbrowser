@@ -364,7 +364,7 @@ enum HarCommand {
         status: Option<u16>,
         #[arg(long)]
         session: Option<String>,
-        /// How many captures to include, newest first.
+        /// How many captures to include, newest first. `0` means all of them.
         #[arg(short, long, default_value_t = 1000)]
         limit: usize,
     },
@@ -1193,9 +1193,18 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
                 status_max: None,
                 session,
             };
-            let captures = store.list(&filter, limit)?;
+            // `--limit 0` means everything. A default limit is right for a
+            // terminal listing and wrong for a file: an export that silently
+            // contains one percent of the log is worse than one that refuses,
+            // because the file looks complete.
+            let effective = if limit == 0 { usize::MAX } else { limit };
+            let captures = store.list(&filter, effective)?;
             let har = gabriel_core::har::export(&captures);
             let text = serde_json::to_string_pretty(&har)?;
+
+            // Only counted when the limit actually bit, so the common case pays
+            // nothing for the warning.
+            let truncated = captures.len() == limit && limit != 0;
 
             match out {
                 Some(path) => {
@@ -1207,6 +1216,14 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
                         captures.len(),
                         path.display()
                     );
+                    if truncated {
+                        let total = store.count().unwrap_or(0);
+                        eprintln!(
+                            "{} this is the newest {limit} of {total} captures — the export is \
+                             not complete. Pass --limit 0 for all of them.",
+                            style.yellow("warning:")
+                        );
+                    }
                     // The log holds credentials, and so does anything derived
                     // from it — say so once rather than assume it is obvious.
                     eprintln!(
