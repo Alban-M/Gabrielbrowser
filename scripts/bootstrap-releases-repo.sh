@@ -14,7 +14,10 @@
 
 set -eu
 
-REMOTE="${1:-git@github.com:Alban-M/gabriel-releases.git}"
+# HTTPS rather than SSH: the source repository already authenticates over
+# HTTPS, so this uses the credential helper that is known to work here. Pass an
+# SSH URL as the first argument if you prefer it.
+REMOTE="${1:-https://github.com/Alban-M/gabriel-releases.git}"
 
 # The install command fetches raw.githubusercontent.com/.../main/install.sh, so
 # the branch name is not cosmetic. On an empty repository the branch you land on
@@ -36,9 +39,17 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
 
 echo "cloning $REMOTE"
-if ! git clone --quiet "$REMOTE" "$work/repo" 2>/dev/null; then
-    echo "could not clone — create the repository first, and make it PUBLIC." >&2
-    echo "A private releases repository breaks every documented install path." >&2
+if ! git clone "$REMOTE" "$work/repo" 2>"$work/clone.err"; then
+    echo >&2
+    echo "could not clone $REMOTE" >&2
+    sed 's/^/  /' "$work/clone.err" >&2
+    echo >&2
+    # The reason is in the error above. Guessing one here would send somebody to
+    # fix a setting that is already correct — an earlier version of this script
+    # blamed repository visibility for what was actually a missing SSH key.
+    echo "Common causes: the repository does not exist yet, or this machine" >&2
+    echo "cannot authenticate to it. Check the message above before changing" >&2
+    echo "anything." >&2
     exit 1
 fi
 
