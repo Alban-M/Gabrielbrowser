@@ -13,6 +13,19 @@ plane or an air-gapped machine. One optional step reaches example.com.
 
 ## Setup
 
+**Put the binary on your PATH first.** `cargo build` leaves it in `target/`,
+where the shell will not find it — the first thing this script did on a clean
+machine was print `zsh: command not found: gabriel` five times.
+
+```sh
+cargo build --release
+install -m 755 target/release/gabriel ~/.local/bin/gabriel
+gabriel --version                     # expect: gabriel 0.1.0-preview.1
+```
+
+If `~/.local/bin` is not on your PATH, either add it or use
+`export PATH="$PWD/target/release:$PATH"` for this session.
+
 ```sh
 mkdir -p /tmp/gabriel-manual && cd /tmp/gabriel-manual
 export GABRIEL_VAULT_PASSPHRASE=manual-test   # avoids keychain prompts
@@ -108,8 +121,13 @@ timing.
 
 ## 5. Promote — the step the product exists for
 
+Take the id from step 4. Substituted here rather than written as
+`<capture-id>`, because a placeholder pasted verbatim becomes
+`zsh: no such file or directory: capture-id`:
+
 ```sh
-gabriel promote <capture-id> --to users/me
+CAPTURE=$(gabriel capture ls | grep '/api/me' | head -1 | awk '{print $1}')
+gabriel promote "$CAPTURE" --to users/me
 cat gabriel/requests/users/me.toml
 ```
 
@@ -140,7 +158,9 @@ gabriel run users/me --quiet | python3 -m json.tool
 
 ```sh
 curl -s --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/api/me -b jar.txt
-gabriel diff <older-id> <newer-id>
+NEWER=$(gabriel capture ls | grep '/api/me' | sed -n '1p' | awk '{print $1}')
+OLDER=$(gabriel capture ls | grep '/api/me' | sed -n '2p' | awk '{print $1}')
+gabriel diff "$OLDER" "$NEWER"
 ```
 
 **Pass:** `no differences`, having ignored the headers that change every time.
