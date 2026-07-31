@@ -274,6 +274,29 @@ discarded, producing a file someone later trusted. A warning is not a substitute
 for a safe default, because it moves the work of noticing onto the person least
 able to do it.
 
+**An error message distinguishes what was observed from what might have caused
+it.** A message is a claim about reality, and a confident wrong one is worse
+than no message: the reader reasons correctly from a false premise, which takes
+much longer to recover from than knowing nothing. So state the observation,
+then list causes without picking one.
+
+```text
+no:   Repository is private. Make it public.
+yes:  Could not access the repository.
+        <git's own error>
+      Possible causes: it does not exist, this machine cannot authenticate
+      to it, or permissions are insufficient. Check the message above.
+```
+
+Both halves of that example are real. The repository was public; the actual
+fault was a missing SSH key, and the message would have sent someone to change
+a setting that was already correct.
+
+This is a rule rather than an invariant, and the distinction is honest: the four
+information-flow invariants have `gabriel-testkit` behind them, while this one
+rests on review. "Does this message assert something the code did not check" is
+not mechanically decidable, so it is enforced by whoever reads the diff.
+
 **Request paths cannot escape the collection.** `promote --to ../../elsewhere`
 is refused rather than obeyed.
 
