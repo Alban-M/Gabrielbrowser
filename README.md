@@ -365,6 +365,20 @@ module with it: feed the canaries from `gabriel-testkit` into every field the
 surface renders, and assert on what comes out. Published prose has no canary to
 inject, so `scan-secrets.sh` checks it by shape instead.
 
+**If an experiment costs less than defending an assumption, run the
+experiment.** Five claims in this repository's history were wrong in ways that
+took under a minute to settle by running something, and longer than that to
+argue: that `cwd` was unsupported in `launch.json` (it is supported, validated,
+and fails loudly); that `har export` was complete (it silently wrote 1,000 of
+100,000); that the manual test pass was runnable (it never said to put the
+binary on `PATH`); that the CA certificate should be `0600` (the *key* is; the
+certificate is public by design); and that the mockup rendered correctly (it
+did over `file://`, and mangled every em dash over HTTP).
+
+They share a shape: each was a claim about **behaviour**, and behaviour here is
+cheap to observe. Reading the code is how you form the hypothesis. It is not how
+you settle it.
+
 The installer has its own suite because it is a trust boundary — the one piece
 of software someone runs before they have any reason to trust it, usually piped
 straight into a shell. Both bugs it has had were invisible on the page and

@@ -9,8 +9,9 @@
 
   `location.replace` rather than a meta refresh: a refresh leaves this page in
   the history, so pressing Back from the mockup lands here and is immediately
-  bounced forward again, trapping the user. `replace` substitutes the entry
-  instead of adding one.
+  bounced forward again, trapping the user. `location.replace()` is specified to
+  replace the current history entry rather than create a new one — that is part
+  of the API contract, not an implementation detail to hope for.
 
   When there is more than one mockup this becomes a real index instead.
 -->
