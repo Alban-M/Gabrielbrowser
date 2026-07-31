@@ -1,12 +1,16 @@
 <meta charset="utf-8">
 <title>Gabriel — design mockups</title>
-<meta http-equiv="refresh" content="0; url=workbench.html">
 
 <!--
   A redirect rather than a copy of workbench.html. Serving the same page from
   two paths means two files to keep in step, and the one nobody edits is the one
   that goes stale — which is exactly what gets served to whoever lands on the
   root URL.
+
+  `location.replace` rather than a meta refresh: a refresh leaves this page in
+  the history, so pressing Back from the mockup lands here and is immediately
+  bounced forward again, trapping the user. `replace` substitutes the entry
+  instead of adding one.
 
   When there is more than one mockup this becomes a real index instead.
 -->
@@ -18,9 +22,17 @@
     background: #F2F5F6; color: #101a1e;
     display: grid; place-items: center; height: 100vh; margin: 0;
   }
-  @media (prefers-color-scheme: dark) { body { background: #0C1416; color: #E2ECEE; } }
   a { color: #0F6E7A; }
-  @media (prefers-color-scheme: dark) { a { color: #4FAAB6; } }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0C1416; color: #E2ECEE; }
+    a { color: #4FAAB6; }
+  }
 </style>
 
-<p>Redirecting to <a href="workbench.html">the Behaviour Timeline</a>…</p>
+<script>
+  location.replace("workbench.html");
+</script>
+
+<noscript>
+  <p><a href="workbench.html">Open the Behaviour Timeline</a></p>
+</noscript>
