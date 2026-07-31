@@ -62,7 +62,8 @@ answers exist, the release becomes 0.1.0.
   redirect.
 - Server-controlled text is escape-defused before printing, and escaped in
   reports.
-- Request paths cannot escape the collection.
+- Request paths cannot escape the collection, and what counts as an absolute
+  path is the same answer on every platform rather than the host's opinion.
 - Runtime files (vault, sessions, captures, CA key) are `0600` on Unix.
 - The feedback bundle is assembled from an allow-list of safe fields, so the
   vault, session cookies, the CA key and captured traffic cannot reach it.

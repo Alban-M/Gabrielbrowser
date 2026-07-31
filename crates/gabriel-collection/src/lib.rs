@@ -468,7 +468,7 @@ fn sanitize_request_path(rel: &str) -> Result<String> {
     // Checked before trimming: silently turning `/etc/passwd` into
     // `requests/etc/passwd` is contained but surprising, and surprise is how
     // people lose files.
-    if Path::new(rel.trim()).is_absolute() {
+    if looks_absolute(rel) {
         return Err(CollectionError::UnsafePath(rel.to_string()));
     }
 
@@ -502,6 +502,33 @@ fn sanitize_request_path(rel: &str) -> Result<String> {
         return Err(CollectionError::UnsafePath(rel.to_string()));
     }
     Ok(parts.join("/"))
+}
+
+/// Would *any* platform call this path absolute?
+///
+/// `Path::is_absolute` answers for the platform it is compiled on, and the two
+/// disagree: Windows does not consider `/etc/passwd` absolute, because it wants
+/// a drive letter or a UNC prefix. A request path is written into a file that
+/// gets committed and opened on other machines, so a name Linux refuses must
+/// not be quietly accepted on Windows and turned into
+/// `requests/etc/passwd` — the exact silent rewrite the caller guards against.
+///
+/// So the question is not "is this absolute here" but "is this absolute
+/// anywhere".
+fn looks_absolute(rel: &str) -> bool {
+    let path = rel.trim();
+
+    // Native: catches `C:\x` and `\\server\share` on Windows, `/x` on Unix.
+    if Path::new(path).is_absolute() {
+        return true;
+    }
+    // The root forms the other platform would recognise.
+    if path.starts_with('/') || path.starts_with('\\') {
+        return true;
+    }
+    // A drive prefix, which Unix would treat as an ordinary name.
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 fn request_id(requests_root: &Path, path: &Path) -> String {
@@ -816,6 +843,35 @@ mod tests {
         assert_eq!(collection.find("x").unwrap().spec.method, "POST");
     }
 
+    /// The same answer on every platform, which is the point: `is_absolute`
+    /// alone gives different answers on Windows and Unix, and a request path is
+    /// written into a file that both will read.
+    #[test]
+    fn absolute_means_absolute_anywhere() {
+        for absolute in [
+            "/etc/passwd",
+            "/absolute/escaped",
+            "C:\\Windows\\System32",
+            "C:/Windows/System32",
+            "\\\\server\\share",
+            "\\absolute",
+            "  /leading-space-then-root",
+        ] {
+            assert!(looks_absolute(absolute), "not caught: {absolute:?}");
+        }
+
+        for relative in [
+            "users/me",
+            "a/b/c",
+            "weird-name",
+            "C",
+            "notadrive:x",
+            "./users/me",
+        ] {
+            assert!(!looks_absolute(relative), "wrongly caught: {relative:?}");
+        }
+    }
+
     #[test]
     fn a_request_path_cannot_escape_the_collection() {
         let dir = temp_dir();
@@ -831,6 +887,14 @@ mod tests {
             "",
             "   ",
             "/",
+            // Absolute on Windows, an ordinary name on Unix — and the reverse
+            // for the POSIX forms above. A request path is committed and read
+            // on machines that disagree, so every one of these is refused
+            // everywhere rather than depending on who is asking.
+            "C:\\Windows\\System32\\evil",
+            "C:/Windows/System32/evil",
+            "\\\\server\\share\\evil",
+            "\\absolute\\escaped",
         ] {
             let result = collection.save_request(attempt, &spec);
             assert!(
