@@ -1,8 +1,8 @@
 # Information flow
 
-Two invariants govern Gabriel. The first is implemented and tested. The second
-is written down before the subsystem that will need it exists, because it is
-much cheaper to design an egress boundary than to retrofit one.
+Three invariants govern Gabriel. The first is implemented and tested. The
+other two are written down before the subsystem that will need them exists,
+because an egress boundary is much cheaper to design than to retrofit.
 
 > **1. No secret leaves the process.**
 > Every output surface — terminal, JUnit XML, HTML reports, generated curl
@@ -14,6 +14,12 @@ much cheaper to design an egress boundary than to retrofit one.
 > Every egress path justifies itself against this rule: cloud models, crash
 > reporting, update checks, telemetry, diagnostics, plugins, and any future
 > collaboration feature.
+
+> **3. The user can always determine why a piece of information left the
+> machine.**
+> Every egress is recorded with its destination, its reason, and what it
+> contained. Invariants 1 and 2 are claims; this is what makes them checkable
+> by the person they protect.
 
 The symmetry is the point. Today the redactor sits between the engine and the
 output. Tomorrow it sits between the workbench and the model. Same philosophy,
@@ -27,6 +33,9 @@ today                          tomorrow
     ↓                              ↓
   output                         model
 ```
+
+Invariant 3 is what turns the other two from promises into something a user
+can verify. It is also the one with a mechanism attached, described below.
 
 ## What leaves the machine today
 
@@ -100,10 +109,12 @@ instead of quietly widening what a prompt includes.
 
 Notes that matter more than the table:
 
-- **Level 2 is not "safe".** The redactor removes values it *knows* are secrets.
-  A response body can contain a customer's personal data that is nobody's
-  credential, and no redactor will catch it. Level 2 means "no known secret",
-  not "nothing sensitive".
+- **Level 2 is not "safe".** The redactor removes values it *knows* are
+  secrets. Credentials are one class of sensitive data and not the largest:
+  customer records, internal hostnames, proprietary code, regulated data and
+  business documents are all invisible to a redactor, because sensitivity is a
+  property of the organisation rather than of the string. Level 2 means "no
+  known secret", not "nothing sensitive".
 - **Level 3 must show the payload, not describe it.** "Send the full request?"
   is not approval; a diff of exactly what will leave the machine is.
 - **Level 4 is the only level compatible with a strict reading of invariant 2**,
@@ -111,6 +122,58 @@ Notes that matter more than the table:
   fallback for the privacy-conscious.
 - The default for a new feature is **Level 1**. Raising it is a decision with a
   reviewer, not a default.
+
+## Approval is only meaningful if it binds
+
+A review screen that describes a payload and a sender that assembles it
+separately is theatre: a retry, a streamed follow-up, or a context builder that
+runs again after approval can send something the user never saw. The two have
+to be the same object.
+
+So the flow is **build → hash → show → approve → send the approved bytes**, and
+the sender refuses anything whose hash does not match what was approved. This
+is the same discipline as the installer, which verifies a checksum before
+copying rather than trusting that the download it validated is the one it
+writes. Approval covers a payload, not an intention.
+
+Two consequences worth designing for rather than discovering:
+
+- **The record is written before the send, not after.** A crash mid-request
+  must leave a trace; a log written on success only cannot answer "what did it
+  send when it hung?"
+- **The record is itself an output surface.** It describes what was sent, so it
+  gets an allow-list and canaries like everything else. It should be readable
+  the way a feedback bundle is readable, and it belongs *in* the bundle.
+
+What a user should be able to see, per request:
+
+```text
+destination   the model and provider, named
+reason        the action that caused it — "generate assertions"
+level         the trust level it declared
+included      URL, method, JSON schema
+excluded      Authorization, Cookie, vault secrets
+payload       the exact bytes, on request
+```
+
+"Excluded" matters as much as "included": showing what was *removed* is what
+demonstrates the redactor ran, and it is the difference between a user trusting
+the claim and verifying it.
+
+## Trust level before model
+
+The provider interface splits on trust, not on vendor:
+
+```text
+local   — Ollama, llama.cpp, LM Studio, whatever comes next
+cloud   — any hosted model
+```
+
+The workbench asks *what trust level does this action need* before it asks
+*which model should answer it*. A Level 4 action has exactly one kind of
+provider available, and that is a property of the action rather than a
+preference in a settings screen. Routing by vendor first makes the privacy
+question a configuration detail; routing by level first makes it structural.
 
 ## Mapping the planned features
 
@@ -136,8 +199,9 @@ being on the roadmap early rather than late.
    first use always a prompt? (Recommendation: always a prompt. The first time
    anything leaves the machine is the moment trust is won or lost.)
 2. Is approval remembered per workspace, per collection, or per session?
-3. What does the workbench show *after* the fact — is there a log of what was
-   sent, and can a user read it the way they can read a feedback bundle?
+3. How long is the egress record kept, and who can clear it? A record the
+   user cannot delete is surveillance; one that rotates too quickly cannot
+   answer "what did it send last Tuesday".
 4. Does a captured request marked as coming from a production host get a lower
    ceiling than one from staging?
 5. What happens offline, or when the user has approved nothing? Every AI
