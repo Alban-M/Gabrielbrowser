@@ -1201,10 +1201,20 @@ fn har_command(command: HarCommand, start_dir: &Path, style: &Style) -> Result<O
             // the default is everything, and truncation only happens when asked
             // for.
             let captures = store.list(&filter, limit.unwrap_or(usize::MAX))?;
-            let har = gabriel_core::har::export(&captures);
-            let text = serde_json::to_string_pretty(&har)?;
 
+            // A stderr warning exists only where the command was run. The file
+            // gets copied, attached and read by someone else entirely, so when
+            // the export is partial the file says so itself.
             let truncated = limit.is_some_and(|n| captures.len() == n);
+            let har = if truncated {
+                gabriel_core::har::export_partial(
+                    &captures,
+                    store.count().unwrap_or(captures.len()),
+                )
+            } else {
+                gabriel_core::har::export(&captures)
+            };
+            let text = serde_json::to_string_pretty(&har)?;
 
             match out {
                 Some(path) => {

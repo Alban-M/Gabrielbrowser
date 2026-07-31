@@ -34,6 +34,12 @@ pub struct Log {
     pub pages: Vec<Page>,
     #[serde(default)]
     pub entries: Vec<Entry>,
+    /// Spec-defined free text. Gabriel uses it to declare, inside the file,
+    /// when the file is not the whole log — a warning printed to a terminal
+    /// does not travel with the artifact, and the artifact is what gets
+    /// attached to a ticket six weeks later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
 
 fn default_version() -> String {
@@ -270,6 +276,28 @@ where
 }
 
 pub fn export(captures: &[Capture]) -> Har {
+    build(captures, None)
+}
+
+/// Export a deliberate subset, and say so *in the file*.
+///
+/// A consumer of a HAR has no way to know what was left out — the file looks
+/// identical whether it is the whole log or one percent of it. So an export
+/// that omits anything carries the fact with it, rather than relying on
+/// whoever ran the command to pass the warning along.
+pub fn export_partial(captures: &[Capture], total: usize) -> Har {
+    let shown = captures.len();
+    let omitted = total.saturating_sub(shown);
+    build(
+        captures,
+        Some(format!(
+            "PARTIAL EXPORT: this file contains the newest {shown} of {total} captures. \
+             {omitted} were omitted because --limit was given. It is not a complete record."
+        )),
+    )
+}
+
+fn build(captures: &[Capture], comment: Option<String>) -> Har {
     let mut entries: Vec<Entry> = captures.iter().map(entry_from_capture).collect();
     entries.sort_by_key(|e| e.started_date_time.clone());
     Har {
@@ -278,6 +306,7 @@ pub fn export(captures: &[Capture]) -> Har {
             creator: Creator::default(),
             pages: Vec::new(),
             entries,
+            comment,
         },
     }
 }
@@ -1107,5 +1136,69 @@ mod interchange_stability {
         assert_eq!(after.at, original.at);
         assert_eq!(after.session, original.session);
         assert_eq!(after.page, original.page);
+    }
+}
+
+/// An artifact outlives the terminal that produced it. Whatever a consumer
+/// needs in order to trust it has to be inside it.
+#[cfg(test)]
+mod an_artifact_declares_its_own_boundaries {
+    use super::tests::capture;
+    use super::*;
+
+    #[test]
+    fn a_complete_export_claims_nothing_and_needs_to() {
+        let har = export(&[capture("a"), capture("b")]);
+        assert!(
+            har.log.comment.is_none(),
+            "a complete export should be silent"
+        );
+    }
+
+    #[test]
+    fn a_partial_export_says_so_in_the_file() {
+        let har = export_partial(&[capture("a")], 100_000);
+        let note = har
+            .log
+            .comment
+            .expect("a partial export must declare itself");
+
+        assert!(note.contains("PARTIAL"), "{note}");
+        assert!(note.contains("100000"), "the total is missing: {note}");
+        assert!(
+            note.contains("99999"),
+            "the omitted count is missing: {note}"
+        );
+    }
+
+    /// The declaration has to survive being written to disk and read back by
+    /// something that is not Gabriel — otherwise it protects nobody.
+    #[test]
+    fn the_declaration_survives_serialisation() {
+        let har = export_partial(&[capture("a")], 5);
+        let json = serde_json::to_string(&har).expect("serialises");
+
+        assert!(json.contains("\"comment\""), "{json}");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("parses");
+        assert!(
+            parsed["log"]["comment"]
+                .as_str()
+                .unwrap()
+                .contains("PARTIAL"),
+            "a consumer reading plain JSON cannot see the boundary"
+        );
+    }
+
+    /// Round-tripping a partial export must not launder it into a complete one.
+    #[test]
+    fn reimporting_a_partial_export_does_not_lose_the_warning() {
+        let har = export_partial(&[capture("a")], 5);
+        let json = serde_json::to_string(&har).expect("serialises");
+        let back: Har = serde_json::from_str(&json).expect("parses");
+
+        assert!(
+            back.log.comment.is_some(),
+            "the boundary was laundered away"
+        );
     }
 }

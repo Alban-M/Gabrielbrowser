@@ -389,6 +389,13 @@ Known gaps in what *is* built:
   and bodies larger than the capture limit are passed straight through; the
   capture records their headers and status but not the body. Everything else is
   buffered so it can be captured in full.
+  A consequence worth knowing, and currently only documented rather than
+  enforced: a capture records an absent body the same way whether the body was
+  genuinely empty or was never captured, so a HAR export cannot tell a consumer
+  which it was. Declaring it in the artifact needs the distinction recorded at
+  capture time — a change to the capture format, which the freeze excludes. This
+  is the weakest available rung, chosen because the stronger ones are not
+  available yet, not because it is sufficient.
 - **Upgraded connections are relayed, not inspected.** A WebSocket handshake is
   forwarded verbatim and the sockets spliced, so the connection works and is
   recorded as a 101 — but the frames are not captured. The relay is exercised
