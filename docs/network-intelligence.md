@@ -44,6 +44,14 @@ a commit is not that bytes were stored, it is that a human decided this state
 was worth keeping and gave it a name — and history, diff, blame, revert and
 review all follow from that one deliberate act.
 
+**Why it needs to exist.** Engineering knowledge is produced continuously and
+almost none of it survives the week. An incident is understood, a deployment is
+debugged, a contract is figured out from a trace at eleven at night — and then
+the tab closes. The understanding was real; nothing kept it in a form anyone
+could use. Promotion is the moment that stops: it converts a temporary
+investigation into a permanent capability, and it does so only for the things
+someone judged worth keeping.
+
 Promotion is the same act for behaviour. Two consequences:
 
 - **Curation beats accumulation.** A store of everything the proxy ever saw is a
@@ -54,6 +62,22 @@ Promotion is the same act for behaviour. Two consequences:
   artifact rather than a separate feature.
 
 Today promotion applies to a single request. That is the smallest version of it.
+
+The full lifecycle is also the roadmap, which makes feature arguments short —
+every proposal has to name the stage it improves:
+
+| Stage | Today |
+| --- | --- |
+| observed | capture proxy, HAR and PCAP import |
+| reviewed | the promotion preview: what changes, and which rule changed it |
+| promoted | **shipped** — a committable, credential-free file |
+| named | request ids; behaviour names are next |
+| versioned | git, because the artifact is a file |
+| shared | git; a team surface is later |
+| compared | `gabriel diff` |
+| trusted | run it and see — the point of it being executable |
+
+A proposal that improves no stage is not a Gabriel feature, however good it is.
 
 ---
 
@@ -163,7 +187,10 @@ So the safety model comes before the breadth:
   not.
 - **A behaviour inherits the most dangerous classification it contains.** One
   non-idempotent request makes the whole behaviour non-idempotent, or a
-  safe-sounding name conceals a charge.
+  safe-sounding name conceals a charge. This is the replay counterpart to the
+  information-flow invariants and belongs in code once replay widens — not in
+  [information-flow.md](information-flow.md), which governs what leaves the
+  machine rather than what gets performed on it.
 - **Dry run is the default** for anything unclassified: resolve everything, send
   nothing, show exactly what would have gone.
 - **Non-idempotent replays require confirmation showing what will be
@@ -229,6 +256,13 @@ promotable unit. gRPC and GraphQL replay, OpenAPI generation, PCAP import.
 **If teams appear.** Shared behaviours, org policy on trust levels, egress
 reporting — the last two are by-products of invariants 3 and 4.
 
+This is also where the value stops being individual, and it is worth stating as
+the hypothesis it is rather than the claim it is not: replay helps the person
+who captured it, while a *promoted behaviour* is usable by someone who joins two
+years later and never saw the incident. If that holds, the enterprise story is
+not replay at all — it is that a team stops re-deriving the same understanding.
+Nobody has tested it.
+
 **If organisations appear.** What changes at that scale is *time*: behaviours
 compared across months, so a contract change has a date and a cause. That
 extends diff. Deliberately not a knowledge graph, which is where products go to
@@ -247,7 +281,15 @@ duplicated, or forgotten — read once during an incident and never again.
 
 Gabriel turns that evidence into behaviours a team can keep: understood,
 trusted, credential-free, and runnable a year later. Evidence stops being where
-an investigation ends and becomes where the engineering starts.
+an investigation ends and becomes where the next improvement begins.
+
+That yields a filter, which is the more useful half of a philosophy — it decides
+what *not* to build:
+
+> **Does this make engineering evidence more trustworthy, more understandable,
+> more reusable, or more executable?**
+
+If a proposal cannot answer that, it belongs in another product.
 
 The first step is not a smaller version of that. It is the same claim at the
 smallest scale that can be tested: a developer captures one request, promotes
