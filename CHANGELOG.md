@@ -39,7 +39,11 @@ answers exist, the release becomes 0.1.0.
 ### Working with other tools
 
 - **HAR import/export** — bring traffic in from DevTools, Charles or Proxyman;
-  take it back out again.
+  take it back out again. Import tolerates what real exporters actually write:
+  omitted `statusText` or `cache`, `null` in place of a measurement, timezone
+  offsets, repeated `Set-Cookie` headers, and unreadable dates (whose file order
+  is preserved). A structurally invalid entry fails the file rather than
+  vanishing from it.
 - **curl generation** — `gabriel curl <name>`, credentials masked by default.
 - **JUnit and HTML reports** — `run --all --junit r.xml --html r.html`.
 - **JWT inspection** — `gabriel jwt`, locally, with expiry and `alg: none`

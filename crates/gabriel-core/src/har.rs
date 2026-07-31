@@ -73,7 +73,7 @@ pub struct Entry {
     #[serde(rename = "startedDateTime")]
     pub started_date_time: String,
     /// Total elapsed milliseconds. `-1` means unknown.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub time: f64,
     pub request: Request,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -103,7 +103,11 @@ pub struct Entry {
 pub struct Request {
     pub method: String,
     pub url: String,
-    #[serde(default = "unknown_http_version", rename = "httpVersion")]
+    #[serde(
+        default = "unknown_http_version",
+        rename = "httpVersion",
+        deserialize_with = "null_to_unknown_version"
+    )]
     pub http_version: String,
     #[serde(default)]
     pub cookies: Vec<Cookie>,
@@ -113,18 +117,31 @@ pub struct Request {
     pub query_string: Vec<NameValue>,
     #[serde(default, rename = "postData", skip_serializing_if = "Option::is_none")]
     pub post_data: Option<PostData>,
-    #[serde(default = "minus_one", rename = "headersSize")]
+    #[serde(
+        default = "minus_one",
+        rename = "headersSize",
+        deserialize_with = "null_to_default"
+    )]
     pub headers_size: i64,
-    #[serde(default = "minus_one", rename = "bodySize")]
+    #[serde(
+        default = "minus_one",
+        rename = "bodySize",
+        deserialize_with = "null_to_default"
+    )]
     pub body_size: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
+    #[serde(default, deserialize_with = "null_to_default")]
     pub status: u16,
-    #[serde(default, rename = "statusText")]
+    #[serde(default, rename = "statusText", deserialize_with = "null_to_default")]
     pub status_text: String,
-    #[serde(default = "unknown_http_version", rename = "httpVersion")]
+    #[serde(
+        default = "unknown_http_version",
+        rename = "httpVersion",
+        deserialize_with = "null_to_unknown_version"
+    )]
     pub http_version: String,
     #[serde(default)]
     pub cookies: Vec<Cookie>,
@@ -134,19 +151,27 @@ pub struct Response {
     pub content: Content,
     #[serde(default, rename = "redirectURL")]
     pub redirect_url: String,
-    #[serde(default = "minus_one", rename = "headersSize")]
+    #[serde(
+        default = "minus_one",
+        rename = "headersSize",
+        deserialize_with = "null_to_default"
+    )]
     pub headers_size: i64,
-    #[serde(default = "minus_one", rename = "bodySize")]
+    #[serde(
+        default = "minus_one",
+        rename = "bodySize",
+        deserialize_with = "null_to_default"
+    )]
     pub body_size: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Content {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub size: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<i64>,
-    #[serde(default, rename = "mimeType")]
+    #[serde(default, rename = "mimeType", deserialize_with = "null_to_default")]
     pub mime_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -171,7 +196,7 @@ pub struct Cookie {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostData {
-    #[serde(default, rename = "mimeType")]
+    #[serde(default, rename = "mimeType", deserialize_with = "null_to_default")]
     pub mime_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -222,6 +247,28 @@ fn unknown_http_version() -> String {
 // ── export ──────────────────────────────────────────────────────────────────
 
 /// Build a HAR from captures, newest last (HAR is chronological).
+/// `#[serde(default)]` covers a field that is *absent*. Exporters also write
+/// `null` for a value they did not measure, which is a different thing to serde
+/// and fails the whole file. This accepts both.
+fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// As [`null_to_default`], but for a field whose default is not `Default` —
+/// an absent HTTP version is "unknown", not the empty string.
+fn null_to_unknown_version<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(unknown_http_version))
+}
+
 pub fn export(captures: &[Capture]) -> Har {
     let mut entries: Vec<Entry> = captures.iter().map(entry_from_capture).collect();
     entries.sort_by_key(|e| e.started_date_time.clone());
@@ -342,8 +389,15 @@ pub fn import(har: &Har, id_prefix: &str) -> (Vec<Capture>, usize) {
     let mut captures = Vec::new();
     let mut skipped = 0;
 
+    // An entry whose `startedDateTime` cannot be parsed still has a position in
+    // the file, and that position is the only ordering information left. Giving
+    // every such entry the same "now" would collapse the sequence; stepping a
+    // millisecond per entry keeps it.
+    let fallback_base = crate::now_ms();
+
     for (index, entry) in har.log.entries.iter().enumerate() {
-        match capture_from_entry(entry, &format!("{id_prefix}{index:04x}")) {
+        let fallback_at = fallback_base.saturating_add(index as u64);
+        match capture_from_entry(entry, &format!("{id_prefix}{index:04x}"), fallback_at) {
             Some(capture) => captures.push(capture),
             None => skipped += 1,
         }
@@ -351,7 +405,13 @@ pub fn import(har: &Har, id_prefix: &str) -> (Vec<Capture>, usize) {
     (captures, skipped)
 }
 
-fn capture_from_entry(entry: &Entry, id: &str) -> Option<Capture> {
+/// A single exchange lasting longer than this is not something the duration
+/// column needs to render faithfully, and a HAR in the wild can carry anything.
+/// Without a ceiling, `time: 1e30` casts to `u64::MAX` and prints as
+/// "213503982334d 14h".
+const MAX_DURATION_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
+
+fn capture_from_entry(entry: &Entry, id: &str, fallback_at: u64) -> Option<Capture> {
     if entry.request.url.is_empty() || entry.request.method.is_empty() {
         return None;
     }
@@ -399,9 +459,9 @@ fn capture_from_entry(entry: &Entry, id: &str) -> Option<Capture> {
 
     Some(Capture {
         id: id.to_string(),
-        at: crate::parse_iso8601(&entry.started_date_time).unwrap_or_else(crate::now_ms),
+        at: crate::parse_iso8601(&entry.started_date_time).unwrap_or(fallback_at),
         duration_ms: if entry.time.is_finite() && entry.time > 0.0 {
-            entry.time as u64
+            entry.time.min(MAX_DURATION_MS) as u64
         } else {
             0
         },
@@ -837,5 +897,215 @@ mod har_export_is_a_deliberate_exception {
             json.contains("sid=abc123"),
             "a HAR export that drops cookies cannot be replayed:\n{json}"
         );
+    }
+}
+
+/// HAR is an interchange format, which means the files Gabriel reads were
+/// written by something else — DevTools, Charles, Proxyman, Firefox, a script —
+/// each with its own idea of which fields are optional. These are the shapes
+/// that actually turn up, and the ones that turned out to matter.
+#[cfg(test)]
+mod interchange_stability {
+    use super::tests::capture;
+    use super::*;
+
+    fn entry_json(extra: &str) -> String {
+        format!(
+            r#"{{
+              "startedDateTime": "2026-07-30T10:00:00.000Z",
+              "time": 42,
+              "request": {{"method": "GET", "url": "https://api.test/x",
+                          "httpVersion": "HTTP/1.1", "headers": [], "queryString": [],
+                          "cookies": [], "headersSize": -1, "bodySize": -1}},
+              "response": {{"status": 200, "statusText": "OK", "httpVersion": "HTTP/1.1",
+                           "headers": [], "cookies": [],
+                           "content": {{"size": 2, "mimeType": "application/json", "text": "{{}}"}},
+                           "redirectURL": "", "headersSize": -1, "bodySize": -1}},
+              "cache": {{}}, "timings": {{"send": 0, "wait": 42, "receive": 0}}
+              {extra}
+            }}"#
+        )
+    }
+
+    fn har_with(entries: &str) -> Har {
+        serde_json::from_str(&format!(
+            r#"{{"log": {{"version": "1.2",
+                "creator": {{"name": "test", "version": "1"}},
+                "entries": [{entries}]}}}}"#
+        ))
+        .expect("fixture should parse")
+    }
+
+    /// `time` is a number in a file somebody else wrote. `1e30` casts to
+    /// `u64::MAX`, which rendered as "213503982334d 14h" in `capture ls`.
+    #[test]
+    fn an_absurd_duration_is_clamped_rather_than_wrapped() {
+        let har = har_with(&entry_json(r#", "x": 0"#).replace("\"time\": 42", "\"time\": 1e30"));
+        let (captures, _) = import(&har, "t");
+
+        assert_eq!(captures.len(), 1);
+        assert_eq!(captures[0].duration_ms, MAX_DURATION_MS as u64);
+    }
+
+    /// An exporter that did not measure something writes `null`, which is a
+    /// different thing to serde than leaving the field out — and used to fail
+    /// the whole file.
+    #[test]
+    fn a_negative_null_or_absent_duration_becomes_zero() {
+        for value in ["-1", "null"] {
+            let har =
+                har_with(&entry_json("").replace("\"time\": 42", &format!("\"time\": {value}")));
+            let (captures, _) = import(&har, "t");
+            assert_eq!(captures[0].duration_ms, 0, "time: {value}");
+        }
+    }
+
+    #[test]
+    fn nulls_in_place_of_measurements_do_not_fail_the_file() {
+        let nulled = entry_json("")
+            .replace(r#""statusText": "OK""#, r#""statusText": null"#)
+            .replace(r#""httpVersion": "HTTP/1.1""#, r#""httpVersion": null"#)
+            .replace(r#""bodySize": -1"#, r#""bodySize": null"#)
+            .replace(r#""size": 2"#, r#""size": null"#);
+
+        let (captures, skipped) = import(&har_with(&nulled), "t");
+        assert_eq!(skipped, 0);
+        assert_eq!(captures.len(), 1);
+        // A null version falls back to the same value an absent one does,
+        // rather than to an empty string a replay would have to interpret.
+        assert!(!captures[0].request.http_version.is_empty());
+        assert_eq!(captures[0].request.http_version, unknown_http_version());
+    }
+
+    /// Deliberately *not* tolerant: an entry missing `request.url` entirely is
+    /// counted as skipped, but a structurally invalid entry fails the import.
+    /// Someone importing a HAR is usually looking for one specific request, and
+    /// silently dropping malformed entries could drop exactly that one.
+    #[test]
+    fn a_structurally_invalid_entry_fails_loudly_rather_than_vanishing() {
+        let broken = entry_json("").replace(r#""request": {"method""#, r#""request": {"metod""#);
+        let parsed: Result<Har, _> = serde_json::from_str(&format!(
+            r#"{{"log": {{"version": "1.2",
+                "creator": {{"name": "t", "version": "1"}},
+                "entries": [{broken}]}}}}"#
+        ));
+        assert!(parsed.is_err(), "a malformed entry was silently accepted");
+    }
+
+    /// The file's order is the only ordering information an entry with an
+    /// unreadable date has left. Collapsing them all onto one timestamp loses
+    /// which request came first, which is most of what a capture log is for.
+    #[test]
+    fn entries_with_unreadable_dates_keep_their_relative_order() {
+        let broken = entry_json("").replace("2026-07-30T10:00:00.000Z", "not-a-date");
+        let har = har_with(&format!("{broken},{broken},{broken}"));
+
+        let (captures, _) = import(&har, "t");
+        assert_eq!(captures.len(), 3);
+        assert!(
+            captures[0].at < captures[1].at && captures[1].at < captures[2].at,
+            "order lost: {:?}",
+            captures.iter().map(|c| c.at).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_timezone_offset_is_honoured_rather_than_ignored() {
+        let utc = har_with(&entry_json(""));
+        let offset = har_with(&entry_json("").replace("10:00:00.000Z", "10:00:00.000+02:00"));
+
+        let (utc, _) = import(&utc, "t");
+        let (offset, _) = import(&offset, "t");
+        // 10:00+02:00 is 08:00Z — two hours earlier, not the same instant.
+        assert_eq!(utc[0].at - offset[0].at, 2 * 60 * 60 * 1000);
+    }
+
+    /// Firefox omits `statusText`, Charles omits `cache`, and plenty of
+    /// exporters omit `pages`. None of that should stop an import.
+    #[test]
+    fn fields_other_exporters_omit_are_optional() {
+        let sparse = r#"{
+            "startedDateTime": "2026-07-30T10:00:00.000Z", "time": 1,
+            "request": {"method": "get", "url": "https://api.test/x", "headers": []},
+            "response": {"status": 204, "headers": [], "content": {}}
+        }"#;
+        let (captures, skipped) = import(&har_with(sparse), "t");
+
+        assert_eq!(skipped, 0);
+        assert_eq!(captures.len(), 1);
+        // Method is normalised on the way in, so a replay sends `GET`.
+        assert_eq!(captures[0].request.method, "GET");
+        assert_eq!(captures[0].response.as_ref().unwrap().status, 204);
+    }
+
+    /// The property that makes HAR usable as interchange rather than as a
+    /// one-way export: what comes out can go back in and mean the same thing.
+    #[test]
+    fn import_export_import_is_stable() {
+        let first = import(&har_with(&entry_json("")), "t").0;
+        let round_tripped = import(&export(&first), "t").0;
+
+        assert_eq!(first.len(), round_tripped.len());
+        for (before, after) in first.iter().zip(&round_tripped) {
+            assert_eq!(before.request.method, after.request.method);
+            assert_eq!(before.request.url, after.request.url);
+            assert_eq!(before.at, after.at, "timestamp drifted across a round trip");
+            assert_eq!(before.duration_ms, after.duration_ms);
+            assert_eq!(
+                before.response.as_ref().map(|r| r.status),
+                after.response.as_ref().map(|r| r.status)
+            );
+        }
+    }
+
+    /// Exporting what was imported must not lose a header that appeared twice —
+    /// `Set-Cookie` is the one that matters, and the one a naive map drops.
+    #[test]
+    fn a_repeated_header_survives_a_round_trip() {
+        let with_cookies = entry_json("").replace(
+            r#""headers": [], "cookies": [],
+                           "content""#,
+            r#""headers": [{"name": "Set-Cookie", "value": "a=1"},
+                                       {"name": "Set-Cookie", "value": "b=2"}], "cookies": [],
+                           "content""#,
+        );
+        let imported = import(&har_with(&with_cookies), "t").0;
+        let again = import(&export(&imported), "t").0;
+
+        let headers = &again[0].response.as_ref().unwrap().headers;
+        let values: Vec<&str> = headers
+            .iter_pairs()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("Set-Cookie"))
+            .map(|(_, value)| value)
+            .collect();
+        assert_eq!(
+            values.len(),
+            2,
+            "a repeated header was collapsed: {values:?}"
+        );
+    }
+
+    /// An export of nothing is still a valid HAR, and reimporting it is a
+    /// no-op rather than an error.
+    #[test]
+    fn an_empty_export_reimports_as_empty() {
+        let (captures, skipped) = import(&export(&[]), "t");
+        assert!(captures.is_empty());
+        assert_eq!(skipped, 0);
+    }
+
+    /// A capture Gabriel recorded itself is the other direction of the same
+    /// property, and the one `gabriel har export` produces.
+    #[test]
+    fn a_gabriel_capture_survives_export_and_reimport() {
+        let original = capture("c1");
+        let (round_tripped, skipped) = import(&export(std::slice::from_ref(&original)), "t");
+
+        assert_eq!(skipped, 0);
+        let after = &round_tripped[0];
+        assert_eq!(after.request.url, original.request.url);
+        assert_eq!(after.at, original.at);
+        assert_eq!(after.session, original.session);
+        assert_eq!(after.page, original.page);
     }
 }
