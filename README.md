@@ -216,6 +216,13 @@ short, lowercase and indistinguishable from prose, which only a surface that
 *knows* which values are secret can redact. A surface that passes the first and
 fails the second is pattern-matching where it should be remembering.
 
+That includes the crash path: the panic hook is replaced with one that
+scrubs before printing, using both the pattern scrubber and a registry of the
+values actually resolved from the vault this run — because
+`.expect(&format!("failed for {url}"))` is an ordinary thing to write and a
+resolved URL can carry a token. Backtraces still print unscrubbed, since they
+name functions and files rather than values.
+
 `gabriel har export` is the one deliberate exception — a HAR is a faithful
 record of traffic, which is what makes it interoperable and replayable — and
 there is a test that says so, so it stays a decision rather than an oversight.

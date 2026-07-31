@@ -13,6 +13,7 @@ mod codegen;
 mod doctor;
 mod feedback;
 mod output;
+mod panic;
 mod report;
 mod support;
 
@@ -456,6 +457,20 @@ fn collect_capture_summary(collection: &Collection) -> Option<feedback::CaptureS
     Some(summary)
 }
 
+/// Build a redactor and tell the panic hook about the same values.
+///
+/// `--show-secrets` asks for credentials in *this command's* output; it is not
+/// a request to have them in a crash report, so registration happens either
+/// way and only the redactor changes.
+fn redactor_for(secrets: Vec<String>, show_secrets: bool) -> Redactor {
+    panic::register_secrets(secrets.clone());
+    if show_secrets {
+        Redactor::default()
+    } else {
+        Redactor::new(secrets)
+    }
+}
+
 /// Render an error for display, redacted.
 ///
 /// Error text quotes whatever it failed on, and what a request failed on is
@@ -494,6 +509,10 @@ fn command_label(command: &Command) -> &'static str {
 }
 
 fn main() -> std::process::ExitCode {
+    // Installed before anything can panic, so a crash cannot print a
+    // credential even from a code path nobody expected to reach.
+    panic::install();
+
     let cli = Cli::parse();
     let style = Style::detect();
 
@@ -1105,7 +1124,7 @@ fn ws_command(args: WsArgs, start_dir: &Path, style: &Style) -> Result<Outcome> 
         let mut ctx = RunContext::new(&mut resolver, &mut sessions)
             .with_session(session)
             .with_base_dir(collection.root());
-        let redactor = Redactor::new(ctx.resolver.used_secrets());
+        let redactor = redactor_for(ctx.resolver.used_secrets(), false);
         runtime
             .block_on(websocket::run(&spec, &mut ctx, &plan, |frame| {
                 let arrow = match frame.direction {
@@ -1410,11 +1429,7 @@ fn curl_command(args: CurlArgs, start_dir: &Path, style: &Style) -> Result<Outco
         executor.prepare(&spec, &mut ctx)?
     };
 
-    let redactor = if args.show_secrets {
-        Redactor::default()
-    } else {
-        Redactor::new(resolver.used_secrets())
-    };
+    let redactor = redactor_for(resolver.used_secrets(), args.show_secrets);
 
     if oauth_pending {
         eprintln!(
@@ -1504,11 +1519,7 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                 .with_session(session.clone())
                 .with_base_dir(collection.root());
             let stream_style = style;
-            let redactor = if args.show_secrets {
-                Redactor::default()
-            } else {
-                Redactor::new(redactor_secrets)
-            };
+            let redactor = redactor_for(redactor_secrets, args.show_secrets);
             let mut index = 0usize;
             runtime
                 .block_on(executor.execute_stream(&spec, &mut ctx, &limits, |event| {
@@ -1636,11 +1647,7 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
             });
         }
 
-        let redactor = if args.show_secrets {
-            Redactor::default()
-        } else {
-            Redactor::new(resolver.used_secrets())
-        };
+        let redactor = redactor_for(resolver.used_secrets(), args.show_secrets);
 
         if args.quiet {
             // `safe` is a no-op when stdout is a pipe, so `| jq` still gets the
@@ -1670,11 +1677,7 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
         };
         // A report is an artifact that outlives the run; the same redaction that
         // protects the terminal protects it.
-        let redactor = if args.show_secrets {
-            Redactor::default()
-        } else {
-            Redactor::new(resolver.used_secrets())
-        };
+        let redactor = redactor_for(resolver.used_secrets(), args.show_secrets);
 
         if let Some(path) = &args.junit {
             std::fs::write(path, report::to_junit(&run, &redactor))
