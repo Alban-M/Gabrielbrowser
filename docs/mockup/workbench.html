@@ -1,0 +1,510 @@
+<title>Gabriel — Behaviour Timeline</title>
+
+<style>
+  :root {
+    /* Neutrals biased cool, toward the accent — picked, not inherited. */
+    --ground:      #F2F5F6;
+    --surface:     #FFFFFF;
+    --surface-2:   #E9EEF0;
+    --line:        #D3DCDF;
+    --line-strong: #B4C2C7;
+    --ink:         #101a1e;
+    --ink-2:       #47585f;
+    --ink-3:       #6E8188;
+
+    /* One accent, deep and instrument-like. Not neon. */
+    --accent:      #0F6E7A;
+    --accent-soft: #DCEBED;
+    --accent-line: #8FBEC4;
+
+    /* Semantic, deliberately separate from the accent. */
+    --kept:        #2E6B45;
+    --kept-soft:   #DFEDE4;
+    --removed:     #9C3E2C;
+    --removed-soft:#F3E2DE;
+    --warn:        #8A5D08;
+    --warn-soft:   #F5E9D2;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    --on-accent:   #FFFFFF;
+
+    --r: 3px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:      #0C1416;
+      --surface:     #121D20;
+      --surface-2:   #18262A;
+      --line:        #23373C;
+      --line-strong: #35525A;
+      --ink:         #E2ECEE;
+      --ink-2:       #A0B4BA;
+      --ink-3:       #7A9198;
+      --accent:      #4FAAB6;
+      --accent-soft: #16333A;
+      --accent-line: #2E6B76;
+      --kept:        #6FBF8E;
+      --kept-soft:   #16301F;
+      --removed:     #DB8E7C;
+      --removed-soft:#331913;
+      --warn:        #D6A840;
+      --warn-soft:   #2E2410;
+      --on-accent:   #081113;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0C1416; --surface:#121D20; --surface-2:#18262A; --line:#23373C;
+    --line-strong:#35525A; --ink:#E2ECEE; --ink-2:#A0B4BA; --ink-3:#7A9198;
+    --accent:#4FAAB6; --accent-soft:#16333A; --accent-line:#2E6B76;
+    --kept:#6FBF8E; --kept-soft:#16301F; --removed:#DB8E7C; --removed-soft:#331913;
+    --warn:#D6A840; --warn-soft:#2E2410; --on-accent:#081113;
+  }
+  :root[data-theme="light"] {
+    --ground:#F2F5F6; --surface:#FFFFFF; --surface-2:#E9EEF0; --line:#D3DCDF;
+    --line-strong:#B4C2C7; --ink:#101a1e; --ink-2:#47585f; --ink-3:#6E8188;
+    --accent:#0F6E7A; --accent-soft:#DCEBED; --accent-line:#8FBEC4;
+    --kept:#2E6B45; --kept-soft:#DFEDE4; --removed:#9C3E2C; --removed-soft:#F3E2DE;
+    --warn:#8A5D08; --warn-soft:#F5E9D2; --on-accent:#FFFFFF;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Monospace carries structure; sans carries prose. */
+  .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .app {
+    display: grid;
+    grid-template-columns: 172px minmax(0, 1fr) 340px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top   top    top"
+      "rail  main   side"
+      "ledger ledger ledger";
+    height: 100vh;
+    min-height: 620px;
+  }
+
+  /* ── top ─────────────────────────────────────────────── */
+  .top {
+    grid-area: top;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 16px; height: 46px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .wordmark {
+    font-family: var(--mono); font-weight: 700; font-size: 13px;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--ink);
+  }
+  .wordmark span { color: var(--accent); }
+  .session {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+    padding: 3px 8px; border: 1px solid var(--line); border-radius: var(--r);
+    background: var(--ground);
+  }
+  .rec { color: var(--removed); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  @media (prefers-reduced-motion: reduce) { .rec { animation: none } }
+  .kbd {
+    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+  }
+  .kbd b {
+    font-weight: 500; background: var(--ground); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: var(--r); padding: 1px 5px; color: var(--ink-2);
+  }
+
+  /* ── rail ────────────────────────────────────────────── */
+  .rail {
+    grid-area: rail;
+    background: var(--surface); border-right: 1px solid var(--line);
+    padding: 14px 0; display: flex; flex-direction: column; gap: 1px;
+    overflow-y: auto;
+  }
+  .rail .label { padding: 12px 16px 6px; }
+  .nav {
+    display: flex; align-items: baseline; gap: 9px;
+    padding: 6px 16px; color: var(--ink-2); cursor: pointer;
+    border-left: 2px solid transparent; font-size: 12.5px;
+  }
+  .nav:hover { background: var(--ground); color: var(--ink); }
+  .nav[aria-current="true"] {
+    color: var(--ink); border-left-color: var(--accent);
+    background: var(--accent-soft); font-weight: 600;
+  }
+  .nav .n { font-family: var(--mono); font-size: 10px; color: var(--ink-3); min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ── main ────────────────────────────────────────────── */
+  .main { grid-area: main; overflow-y: auto; padding: 18px 20px 24px; }
+
+  .knows {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px; background: var(--line);
+    border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+    margin-bottom: 22px;
+  }
+  .knows div { background: var(--surface); padding: 11px 13px; }
+  .knows .v { font-family: var(--mono); font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .knows .k { font-size: 11.5px; color: var(--ink-2); margin-top: 1px; }
+  .knows .v.flag { color: var(--warn); }
+
+  h1 {
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; margin: 0 0 3px;
+  }
+  .sub { color: var(--ink-2); margin: 0 0 14px; max-width: 62ch; }
+
+  /* ── timeline ────────────────────────────────────────── */
+  .tl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+  .tl { min-width: 720px; padding: 14px 16px 10px; position: relative; }
+
+  .axis { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .axis span { font-family: var(--mono); font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+  .lane { display: grid; grid-template-columns: 118px minmax(0,1fr); align-items: center; gap: 10px; margin-bottom: 7px; }
+  .lane-name { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track { position: relative; height: 26px; background: var(--ground); border-radius: var(--r); }
+
+  .ev {
+    position: absolute; top: 3px; height: 20px; border-radius: 2px;
+    border: 1px solid var(--accent-line); background: var(--accent-soft);
+    display: flex; align-items: center; padding: 0 5px; gap: 5px;
+    font-family: var(--mono); font-size: 10px; white-space: nowrap;
+    cursor: pointer; color: var(--ink);
+    overflow: hidden; text-align: left;
+  }
+  .ev .verb { font-weight: 700; color: var(--accent); flex: none; }
+  .ev[data-state="fail"] .verb { color: var(--removed); }
+  .ev[data-state="warn"] .verb { color: var(--warn); }
+  .ev[aria-pressed="true"] .verb { color: var(--on-accent); }
+  .ev .path { overflow: hidden; text-overflow: ellipsis; }
+  .ev:hover, .ev:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent); }
+  .ev[data-state="fail"] { border-color: var(--removed); background: var(--removed-soft); }
+  .ev[data-state="warn"] { border-color: var(--warn); background: var(--warn-soft); }
+  /* On the accent fill, the label needs the ground colour of the opposite
+     theme — declared as a token so both themes stay legible. */
+  .ev[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent);
+    color: var(--on-accent); font-weight: 600;
+  }
+
+  /* The signature interaction: a region of time, crossing every service.
+     Offset by the 118px lane-label column plus its 10px gap. */
+  .lanes { position: relative; }
+  .span-sel {
+    position: absolute; top: -4px; bottom: 2px; z-index: 2;
+    pointer-events: none; border-radius: 2px;
+    border-left: 2px solid var(--accent); border-right: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+  }
+  .span-sel::before, .span-sel::after {
+    content: ""; position: absolute; left: -2px; right: -2px; height: 2px;
+    background: repeating-linear-gradient(90deg, var(--accent) 0 4px, transparent 4px 8px);
+  }
+  .span-sel::before { top: 0; } .span-sel::after { bottom: 0; }
+  .span-sel .tag {
+    position: absolute; top: -9px; left: 6px; padding: 1px 6px;
+    background: var(--accent); color: var(--on-accent); border-radius: 2px;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+  }
+  .span-bar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-top: 12px; padding: 11px 13px;
+    border: 1px solid var(--accent-line); background: var(--accent-soft);
+    border-radius: var(--r);
+  }
+  .span-bar .t { font-size: 12.5px; }
+  .span-bar .t b { font-family: var(--mono); }
+  button.act {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+    padding: 6px 11px; border-radius: var(--r); cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  }
+  button.act.ghost { background: transparent; color: var(--accent); }
+  button.act:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .span-bar .grow { margin-left: auto; display: flex; gap: 8px; }
+
+  /* ── proof ───────────────────────────────────────────── */
+  .proof { margin-top: 22px; }
+  .proof table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
+  .proof th {
+    text-align: left; font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 500; padding: 0 10px 6px; border-bottom: 1px solid var(--line);
+  }
+  .proof td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .proof tr:last-child td { border-bottom: 0; }
+  .was { color: var(--ink-3); }
+  .strike {
+    background: repeating-linear-gradient(135deg, var(--removed-soft) 0 5px, transparent 5px 10px);
+    border: 1px solid var(--removed); border-radius: 2px; padding: 0 4px; color: var(--removed);
+  }
+  .now { color: var(--kept); background: var(--kept-soft); border: 1px solid var(--kept); border-radius: 2px; padding: 0 4px; }
+  .rule { color: var(--ink-2); font-size: 10.5px; }
+
+  /* ── side ────────────────────────────────────────────── */
+  .side {
+    grid-area: side; background: var(--surface); border-left: 1px solid var(--line);
+    overflow-y: auto; padding: 16px 15px 20px;
+  }
+  .side h2 { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; margin: 0 0 9px; font-weight: 700; }
+  .kv { display: grid; grid-template-columns: 74px minmax(0,1fr); gap: 3px 9px; font-family: var(--mono); font-size: 11.5px; margin-bottom: 16px; }
+  .kv dt { color: var(--ink-3); }
+  .kv dd { margin: 0; word-break: break-all; }
+  .status-ok { color: var(--kept); } .status-bad { color: var(--removed); }
+
+  pre.body {
+    margin: 0 0 16px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r);
+    background: var(--ground); font-family: var(--mono); font-size: 11px;
+    overflow-x: auto; color: var(--ink-2);
+  }
+  .secret-inline { background: var(--removed-soft); border-bottom: 2px solid var(--removed); color: var(--removed); }
+
+  .side hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+
+  /* ── ledger ──────────────────────────────────────────── */
+  .ledger {
+    grid-area: ledger; background: var(--surface); border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; padding: 0 16px; height: 40px;
+    overflow-x: auto; white-space: nowrap;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--kept); flex: none; }
+  .ledger .claim { font-family: var(--mono); font-size: 11.5px; }
+  .ledger .detail { color: var(--ink-2); font-size: 11.5px; }
+  .ledger .grow { margin-left: auto; }
+  .ledger a { color: var(--accent); font-family: var(--mono); font-size: 11px; text-decoration: none; border-bottom: 1px solid var(--accent-line); }
+  .ledger a:hover { border-bottom-color: var(--accent); }
+
+  @media (max-width: 1180px) { .knows { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+
+  @media (max-width: 980px) {
+    .app { grid-template-columns: 1fr; grid-template-areas: "top" "main" "side" "ledger"; height: auto; }
+    .rail { display: none; }
+    .side { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+
+<div class="app">
+
+  <header class="top">
+    <div class="wordmark">gabriel<span>.</span></div>
+    <div class="session"><span class="rec">●</span> recording · session <b>checkout</b></div>
+    <div class="kbd"><b>⌘K</b> command<b>⌘⇧T</b> make repeatable</div>
+  </header>
+
+  <nav class="rail" aria-label="Sections">
+    <div class="label">Evidence</div>
+    <div class="nav" aria-current="true"><span class="n">1247</span>Timeline</div>
+    <div class="nav"><span class="n">312</span>Requests</div>
+    <div class="nav"><span class="n">4</span>Sessions</div>
+    <div class="label">Assets</div>
+    <div class="nav"><span class="n">42</span>Tests</div>
+    <div class="nav"><span class="n">7</span>Suites</div>
+    <div class="nav"><span class="n">18</span>Reports</div>
+    <div class="label">Boundary</div>
+    <div class="nav"><span class="n">0</span>Egress</div>
+    <div class="nav"><span class="n">3</span>Policies</div>
+  </nav>
+
+  <main class="main">
+    <section class="knows" aria-label="What Gabriel has observed">
+      <div><div class="v mono">1,247</div><div class="k">requests observed</div></div>
+      <div><div class="v mono">37</div><div class="k">distinct endpoints</div></div>
+      <div><div class="v mono flag">3</div><div class="k">auth flows failing</div></div>
+      <div><div class="v mono">42</div><div class="k">tests promoted</div></div>
+      <div><div class="v mono">0</div><div class="k">requests left this machine</div></div>
+    </section>
+
+    <h1>Behaviour timeline</h1>
+    <p class="sub">
+      What your application actually did, in the order it did it. Drag across a
+      region to turn that stretch of history into a runnable test — session
+      state and ordering intact.
+    </p>
+
+    <div class="tl-wrap">
+      <div class="tl">
+        <div class="axis">
+          <span>10:02:01</span><span>10:02:03</span><span>10:02:05</span>
+          <span>10:02:07</span><span>10:02:09</span>
+        </div>
+
+        <div class="lanes">
+        <div class="span-sel"
+             style="left: calc(128px + (100% - 128px) * 0.01);
+                    width: calc((100% - 128px) * 0.57);">
+          <span class="tag">selected</span>
+        </div>
+
+        <div class="lane">
+          <div class="lane-name">search-svc</div>
+          <div class="track">
+            <button class="ev" style="left:1%; width:25%" aria-pressed="false"
+              data-m="GET" data-p="/flight/search?from=LHR&amp;to=JFK" data-s="200" data-ms="412"
+              data-body='{"results":[{"id":"BA117","fare":"£481.00"}]}'><span class="verb">GET</span><span class="path">/flight/search</span></button>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-name">cart-svc</div>
+          <div class="track">
+            <button class="ev" style="left:28%; width:14%" aria-pressed="true"
+              data-m="POST" data-p="/cart/create" data-s="201" data-ms="88"
+              data-body='{"cart_id":"c_8fa21","items":1}'><span class="verb">POST</span><span class="path">/cart/create</span></button>
+            <button class="ev" style="left:44%; width:14%" aria-pressed="false"
+              data-m="POST" data-p="/cart/c_8fa21/items" data-s="200" data-ms="61"
+              data-body='{"items":1,"total":"£481.00"}'><span class="verb">POST</span><span class="path">/cart/{id}/items</span></button>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-name">payment-svc</div>
+          <div class="track">
+            <button class="ev" data-state="fail" style="left:60%; width:19%" aria-pressed="false"
+              data-m="POST" data-p="/payment/session" data-s="422" data-ms="203"
+              data-body='{"error":"schema_mismatch","field":"amount_minor"}'><span class="verb">POST</span><span class="path">/payment/session</span></button>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-name">identity-svc</div>
+          <div class="track">
+            <button class="ev" data-state="warn" style="left:81%; width:18%" aria-pressed="false"
+              data-m="POST" data-p="/token/refresh" data-s="401" data-ms="44"
+              data-body='{"error":"invalid_grant"}'><span class="verb">POST</span><span class="path">/token/refresh</span></button>
+          </div>
+        </div>
+
+        </div><!-- /lanes -->
+
+        <div class="span-bar">
+          <div class="t"><b>3 requests</b> selected · 10:02:01 → 10:02:06 · session <b>checkout</b></div>
+          <div class="grow">
+            <button class="act ghost">Compare with yesterday</button>
+            <button class="act">Make repeatable →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section class="proof">
+      <h1>What promotion will change</h1>
+      <p class="sub">
+        Shown before it happens, not described afterwards. Each row names the rule
+        that made the change, so “I protected this” is something you can check
+        rather than something you take on faith.
+      </p>
+      <div style="overflow-x:auto; border:1px solid var(--line); border-radius:var(--r); background:var(--surface);">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Captured</th><th>In the committed file</th><th>Rule</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Authorization</td>
+              <td class="was">Bearer <span class="strike">eyJhbGciOiJIUzI1…</span></td>
+              <td><span class="now">{{secret:api_token}}</span></td>
+              <td class="rule">vault-value</td>
+            </tr>
+            <tr>
+              <td>Cookie</td>
+              <td class="was">session_id=<span class="strike">8fa21c…</span></td>
+              <td><span class="now">[auth] type = "session"</span></td>
+              <td class="rule">session-reference</td>
+            </tr>
+            <tr>
+              <td>X-Request-Id</td>
+              <td class="was">req_01HQ8…</td>
+              <td><span class="now">kept</span></td>
+              <td class="rule">not a credential</td>
+            </tr>
+            <tr>
+              <td>body.fare</td>
+              <td class="was">"£481.00"</td>
+              <td><span class="now">kept</span></td>
+              <td class="rule">not a credential</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <aside class="side">
+    <h2>Evidence</h2>
+    <dl class="kv">
+      <dt>method</dt><dd id="e-m">POST</dd>
+      <dt>path</dt><dd id="e-p">/cart/create</dd>
+      <dt>status</dt><dd id="e-s" class="status-ok">201</dd>
+      <dt>duration</dt><dd id="e-ms">88ms</dd>
+      <dt>capture</dt><dd class="mono">c19fb5db5a0a0001</dd>
+    </dl>
+
+    <h2>Response</h2>
+    <pre class="body" id="e-body">{"cart_id":"c_8fa21","items":1}</pre>
+
+    <h2>Secret material in this request</h2>
+    <dl class="kv">
+      <dt>found</dt><dd>2</dd>
+      <dt>header</dt><dd><span class="secret-inline">Authorization</span></dd>
+      <dt>header</dt><dd><span class="secret-inline">Cookie</span></dd>
+    </dl>
+    <p style="color:var(--ink-2); font-size:11.5px; margin:0;">
+      Marked here so you know they exist before you share anything. They are held
+      in the capture log, which never leaves this machine, and are removed on
+      promotion.
+    </p>
+
+    <hr>
+
+    <h2>Not known</h2>
+    <p style="color:var(--ink-2); font-size:11.5px; margin:0;">
+      The JWT in <span class="mono">Authorization</span> is decoded but its
+      signature is <b>not verified</b> — that needs the issuer’s key, which
+      Gabriel does not have.
+    </p>
+  </aside>
+
+  <footer class="ledger">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="claim">Nothing has left this machine.</span>
+    <span class="detail">0 of 1,247 captured requests sent anywhere · last egress: never · 2 local policies active</span>
+    <span class="grow"><a href="#">Open the egress ledger</a></span>
+  </footer>
+</div>
+
+<script>
+  const side = { m:'e-m', p:'e-p', s:'e-s', ms:'e-ms', body:'e-body' };
+  document.querySelectorAll('.ev').forEach(function (el) {
+    el.addEventListener('click', function () {
+      document.querySelectorAll('.ev').forEach(function (o) { o.setAttribute('aria-pressed', 'false'); });
+      el.setAttribute('aria-pressed', 'true');
+      document.getElementById(side.m).textContent = el.dataset.m;
+      document.getElementById(side.p).textContent = el.dataset.p;
+      const st = document.getElementById(side.s);
+      st.textContent = el.dataset.s;
+      st.className = Number(el.dataset.s) < 400 ? 'status-ok' : 'status-bad';
+      document.getElementById(side.ms).textContent = el.dataset.ms + 'ms';
+      document.getElementById(side.body).textContent = el.dataset.body;
+    });
+  });
+</script>

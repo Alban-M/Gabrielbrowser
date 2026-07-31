@@ -14,6 +14,9 @@ Other tools ask you to rebuild a request you have already made. This one starts
 from the request itself — which is why the promotion step, not the protocol
 list, is the thing worth having.
 
+[Where this is going](docs/vision.md) · [how it should look](docs/design.md) ·
+[the signature screen, built](docs/mockup/workbench.html).
+
 The [strategy document](docs/gabriel-browser-strategy.md) argues that the defensible
 part of a "developer browser" is not the browser — it is the seam between the
 browser, the API bench, and the proxy. This repository builds that seam, headless,
