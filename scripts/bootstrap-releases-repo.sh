@@ -16,6 +16,13 @@ set -eu
 
 REMOTE="${1:-git@github.com:Alban-M/gabriel-releases.git}"
 
+# The install command fetches raw.githubusercontent.com/.../main/install.sh, so
+# the branch name is not cosmetic. On an empty repository the branch you land on
+# comes from init.defaultBranch, which is `master` on any machine that has not
+# set it — and pushing that would leave the advertised URL a 404. Named here so
+# it does not depend on whoever runs this.
+BRANCH=main
+
 [ -f install.sh ] || {
     echo "run this from the root of the Gabriel source repository" >&2
     exit 2
@@ -52,8 +59,9 @@ git commit --quiet -m "Installer and landing page
 
 Copied from the source repository so the first impression matches what the
 release workflow syncs on every tag."
-git push --quiet origin HEAD
-echo "pushed install.sh and README.md"
+git branch -M "$BRANCH"
+git push --quiet origin "$BRANCH"
+echo "pushed install.sh and README.md to $BRANCH"
 
 echo
 echo "Verify the way a stranger would — no token, no login:"
