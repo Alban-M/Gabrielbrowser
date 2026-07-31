@@ -28,8 +28,33 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --workspace --all-targets
+      # Job logs need admin rights to read, even on a public repository, so a
+      # failure here is invisible to anyone who does not own the repo —
+      # including whoever is trying to fix it. Annotations are public, so the
+      # failing test names are re-emitted as annotations, and the full output
+      # is kept as an artifact. Evidence is only useful if it reaches the
+      # person who needs it.
       - name: Test
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          if cargo test --workspace 2>&1 | tee test-output.txt; then
+            exit 0
+          fi
+          echo "::error::cargo test failed"
+          grep -E "^test .* FAILED" test-output.txt | head -20 \
+            | while IFS= read -r l; do echo "::error::$l"; done
+          grep -A4 -E "^---- .* stdout ----" test-output.txt | head -40 \
+            | while IFS= read -r l; do echo "::error::$l"; done
+          exit 1
+
+      - name: Keep the output even when it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.os }}
+          path: test-output.txt
+          retention-days: 7
       # Every test binds 127.0.0.1 and spawns its own server, so the suite needs
       # no services — but it does need loopback, which all three runners have.
 
