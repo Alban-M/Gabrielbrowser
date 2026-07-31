@@ -227,6 +227,14 @@ name functions and files rather than values.
 record of traffic, which is what makes it interoperable and replayable — and
 there is a test that says so, so it stays a decision rather than an oversight.
 
+A second invariant is written down but not yet needed: **no secret leaves the
+machine without explicit user approval.** Nothing today violates it — there is
+no telemetry, no update check and no crash reporting, and every host in the
+shipped code is a test domain or loopback. It exists because the AI layer will
+turn redaction from a property of output into a property of *input*, and that
+boundary is much cheaper to design than to retrofit. See
+[docs/information-flow.md](docs/information-flow.md).
+
 **Request paths cannot escape the collection.** `promote --to ../../elsewhere`
 is refused rather than obeyed.
 
