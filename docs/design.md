@@ -214,7 +214,40 @@ No pricing until someone has asked to pay.
 
 ---
 
-## 8. What is still unknown
+## 8. How the interface says the five things
+
+Each of Gabriel's claims needed a visual mechanic rather than a caption. What
+the mockup does, and why:
+
+**Evidence you can run** — the inbox separates *runnable* from *contextual* by
+what the row can do, not by a badge. A proxy capture offers **Promote**; a trace
+span offers **correlate only** and is dimmed. There is no disabled run button on
+contextual evidence, because a greyed-out control still says "this is the kind
+of thing that runs". None is the honest affordance.
+
+**Promotion as the core action** — it is the only filled accent button in the
+inbox, it has the review screen to itself, and that screen writes nothing until
+the artifact is named. Everything downstream (detail, diff, library) is shaped
+like the *result* of a promotion rather than a separate feature.
+
+**Runtime credential binding** — the absence of a secret is rendered as a
+positive, full-width proof: captured value hatched through, artifact value shown
+as a binding, and the rule that made the change named beside it. Hatching rather
+than a black box, because a black box says *hidden* while hatching says
+*removed, and here is where it was*.
+
+**Replay safety** — effect is a column in the inbox, not a warning at the end.
+The gate shows destination, consequence in plain words, the exact bytes, and the
+payload digest that approval binds to — so the screen is evidence rather than
+consent. "Idempotent" never appears as reassurance: `PUT` reads *changes target*,
+because the first replay still lands.
+
+**Team memory** — the library is searchable by *checkout*, *issue a refund*,
+*provision workspace*: what people say to each other, not endpoints nobody
+remembers. Verification is per environment, so trust is specific rather than
+general, and a stale behaviour says so.
+
+## 9. What is still unknown
 
 The honest list, because a design document that projects certainty is the same
 failure as a trust score:

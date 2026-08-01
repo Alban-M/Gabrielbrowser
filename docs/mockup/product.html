@@ -1,0 +1,747 @@
+<meta charset="utf-8">
+<title>Gabriel — product UI</title>
+
+<style>
+  /* ── tokens ───────────────────────────────────────────────────────────
+     Continuous with docs/mockup/workbench.html. A design system that
+     changes between mockups is not a system.                          */
+  :root {
+    --ground:#F2F5F6; --surface:#FFFFFF; --surface-2:#E9EEF0;
+    --line:#D3DCDF; --line-strong:#B4C2C7;
+    --ink:#101A1E; --ink-2:#47585F; --ink-3:#6E8188;
+
+    --accent:#0F6E7A; --accent-soft:#DCEBED; --accent-line:#8FBEC4;
+    --on-accent:#FFFFFF;
+
+    /* Semantic, deliberately not the accent: when everything is teal,
+       nothing is. Each maps to one product meaning and no other.        */
+    --read:#2E6B45;      --read-soft:#DFEDE4;      /* safe to repeat      */
+    --mutate:#8A5D08;    --mutate-soft:#F5E9D2;    /* changes the target  */
+    --unsafe:#9C3E2C;    --unsafe-soft:#F3E2DE;    /* performs again      */
+    --unknown:#5B5566;   --unknown-soft:#E8E5EC;   /* unclassifiable      */
+    --verified:#2E6B45;  --verified-soft:#DFEDE4;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --r:3px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:#0C1416; --surface:#121D20; --surface-2:#18262A;
+      --line:#23373C; --line-strong:#35525A;
+      --ink:#E2ECEE; --ink-2:#A0B4BA; --ink-3:#7A9198;
+      --accent:#4FAAB6; --accent-soft:#16333A; --accent-line:#2E6B76;
+      --on-accent:#081113;
+      --read:#6FBF8E; --read-soft:#16301F;
+      --mutate:#D6A840; --mutate-soft:#2E2410;
+      --unsafe:#DB8E7C; --unsafe-soft:#331913;
+      --unknown:#AFA6BC; --unknown-soft:#241F2B;
+      --verified:#6FBF8E; --verified-soft:#16301F;
+    }
+  }
+  :root[data-theme="dark"]{--ground:#0C1416;--surface:#121D20;--surface-2:#18262A;--line:#23373C;--line-strong:#35525A;--ink:#E2ECEE;--ink-2:#A0B4BA;--ink-3:#7A9198;--accent:#4FAAB6;--accent-soft:#16333A;--accent-line:#2E6B76;--on-accent:#081113;--read:#6FBF8E;--read-soft:#16301F;--mutate:#D6A840;--mutate-soft:#2E2410;--unsafe:#DB8E7C;--unsafe-soft:#331913;--unknown:#AFA6BC;--unknown-soft:#241F2B;--verified:#6FBF8E;--verified-soft:#16301F;}
+  :root[data-theme="light"]{--ground:#F2F5F6;--surface:#FFFFFF;--surface-2:#E9EEF0;--line:#D3DCDF;--line-strong:#B4C2C7;--ink:#101A1E;--ink-2:#47585F;--ink-3:#6E8188;--accent:#0F6E7A;--accent-soft:#DCEBED;--accent-line:#8FBEC4;--on-accent:#FFFFFF;--read:#2E6B45;--read-soft:#DFEDE4;--mutate:#8A5D08;--mutate-soft:#F5E9D2;--unsafe:#9C3E2C;--unsafe-soft:#F3E2DE;--unknown:#5B5566;--unknown-soft:#E8E5EC;--verified:#2E6B45;--verified-soft:#DFEDE4;}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font:13px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* Monospace carries structure, sans carries prose — the subject matter
+     is literally monospace, so the instrument speaks in it.             */
+  .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  h1{font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;margin:0 0 4px}
+  h2{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px;color:var(--ink-2)}
+  .sub{color:var(--ink-2);margin:0 0 16px;max-width:66ch}
+
+  /* ── shell ──────────────────────────────────────────────────────────── */
+  .app{display:grid;grid-template-columns:190px minmax(0,1fr);grid-template-rows:46px minmax(0,1fr) 38px;
+       grid-template-areas:"top top" "rail main" "led led";height:100vh;min-height:640px}
+  .top{grid-area:top;display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .wm{font-family:var(--mono);font-weight:700;letter-spacing:.16em;text-transform:uppercase;font-size:13px}
+  .wm span{color:var(--accent)}
+  .tag{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);border:1px solid var(--line);background:var(--ground);border-radius:var(--r);padding:2px 7px}
+  .rec{color:var(--unsafe);animation:p 2.4s ease-in-out infinite}
+  @keyframes p{0%,100%{opacity:1}50%{opacity:.35}}
+  @media(prefers-reduced-motion:reduce){.rec{animation:none}}
+  .kbd{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);display:flex;gap:6px;align-items:center}
+  .kbd b{font-weight:500;background:var(--ground);border:1px solid var(--line);border-bottom-width:2px;border-radius:var(--r);padding:1px 5px;color:var(--ink-2)}
+
+  .rail{grid-area:rail;background:var(--surface);border-right:1px solid var(--line);padding:14px 0;overflow-y:auto}
+  .rail .lbl{padding:12px 16px 6px}
+  .nav{display:flex;align-items:baseline;gap:9px;padding:6px 16px;color:var(--ink-2);cursor:pointer;border-left:2px solid transparent;font-size:12.5px;width:100%;background:none;border-top:0;border-right:0;border-bottom:0;text-align:left;font-family:inherit}
+  .nav:hover{background:var(--ground);color:var(--ink)}
+  .nav[aria-current="true"]{color:var(--ink);border-left-color:var(--accent);background:var(--accent-soft);font-weight:600}
+  .nav .n{font-family:var(--mono);font-size:10px;color:var(--ink-3);min-width:26px;text-align:right;font-variant-numeric:tabular-nums}
+  .nav:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+  .main{grid-area:main;overflow-y:auto;padding:20px 22px 28px}
+  .screen{display:none}
+  .screen[data-active="true"]{display:block}
+
+  /* ── the ledger: permanent furniture, not a page you visit ─────────── */
+  .led{grid-area:led;background:var(--surface);border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 16px;overflow-x:auto;white-space:nowrap;font-size:11.5px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--verified);flex:none}
+  .led .claim{font-family:var(--mono)}
+  .led .det{color:var(--ink-2)}
+
+  /* ── chips: one meaning each ─────────────────────────────────────────── */
+  .chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;letter-spacing:.03em;
+        padding:1px 6px;border-radius:2px;border:1px solid;white-space:nowrap}
+  .c-read{color:var(--read);border-color:var(--read);background:var(--read-soft)}
+  .c-mutate{color:var(--mutate);border-color:var(--mutate);background:var(--mutate-soft)}
+  .c-unsafe{color:var(--unsafe);border-color:var(--unsafe);background:var(--unsafe-soft)}
+  .c-unknown{color:var(--unknown);border-color:var(--unknown);background:var(--unknown-soft)}
+  .c-ok{color:var(--verified);border-color:var(--verified);background:var(--verified-soft)}
+  .c-quiet{color:var(--ink-3);border-color:var(--line);background:var(--ground)}
+  .c-run{color:var(--accent);border-color:var(--accent-line);background:var(--accent-soft)}
+
+  /* Observed is fact. Inferred is a guess and must never wear fact's
+     clothes — dotted, subordinate, and labelled every time.            */
+  .observed{color:var(--ink)}
+  .inferred{color:var(--ink-2);border-bottom:1px dotted var(--ink-3);cursor:help}
+  .inferred::after{content:" inferred";font-family:var(--mono);font-size:9px;letter-spacing:.08em;
+                   text-transform:uppercase;color:var(--ink-3);border-bottom:0}
+
+  /* Removed material is hatched, never blacked out: a black box says
+     "hidden", hatching says "removed, and here is where it was".       */
+  .strike{background:repeating-linear-gradient(135deg,var(--unsafe-soft) 0 5px,transparent 5px 10px);
+          border:1px solid var(--unsafe);border-radius:2px;padding:0 4px;color:var(--unsafe);font-family:var(--mono)}
+  .bound{color:var(--verified);background:var(--verified-soft);border:1px solid var(--verified);border-radius:2px;padding:0 4px;font-family:var(--mono)}
+
+  /* ── tables: dense, no card-pile ─────────────────────────────────────── */
+  .tw{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--ink-3);font-weight:500;padding:8px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:var(--ground)}
+  .grp td{background:var(--surface-2);font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+          text-transform:uppercase;color:var(--ink-2);padding:5px 10px}
+  .path{font-family:var(--mono);font-size:11.5px}
+  .verb{font-family:var(--mono);font-weight:700;font-size:11px}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;color:var(--ink-2)}
+  /* The primary action is Promote, so it is the one cell that must never be
+     the thing that scrolls out of view. Pinned right, with a hairline so it
+     reads as an edge rather than as a column that overlaps the data.        */
+  .tw td:last-child.act, .tw th:last-child.act{position:sticky;right:0;background:var(--surface);
+    border-left:1px solid var(--line);text-align:right;white-space:nowrap}
+  .tw tbody tr:hover td:last-child.act{background:var(--ground)}
+  .host{color:var(--ink-3);font-size:10.5px;font-family:var(--mono);display:block;margin-top:1px}
+
+  /* ── buttons ─────────────────────────────────────────────────────────── */
+  button.b{font-family:var(--mono);font-size:11px;letter-spacing:.03em;padding:6px 11px;border-radius:var(--r);
+           cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent)}
+  button.b.ghost{background:transparent;color:var(--accent)}
+  button.b.quiet{background:transparent;color:var(--ink-2);border-color:var(--line)}
+  button.b.danger{background:var(--unsafe);border-color:var(--unsafe);color:#fff}
+  button.b:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  button.b:disabled{opacity:.45;cursor:not-allowed}
+
+  .panel{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:14px 16px;margin-bottom:16px}
+  .panel.attn{border-color:var(--mutate);background:var(--mutate-soft)}
+  .panel.stop{border-color:var(--unsafe);background:var(--unsafe-soft)}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .row.end{justify-content:flex-end}
+  .grow{margin-left:auto}
+  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:4px 12px;font-family:var(--mono);font-size:11.5px}
+  .kv dt{color:var(--ink-3)}
+  .kv dd{margin:0;word-break:break-all}
+  /* Wrapped, not scrolled. A panel headed "exactly what will be sent" that
+     hides half the payload off the right edge is answering its own question
+     with "some of it". */
+  pre{margin:0;padding:10px;background:var(--ground);border:1px solid var(--line);border-radius:var(--r);
+      font-family:var(--mono);font-size:11px;color:var(--ink-2);
+      white-space:pre-wrap;overflow-wrap:anywhere}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+  .stack{display:flex;flex-direction:column;gap:16px}
+  input.t{font-family:var(--mono);font-size:13px;padding:7px 9px;border:1px solid var(--line-strong);
+          border-radius:var(--r);background:var(--surface);color:var(--ink);width:100%}
+  input.t:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+  .hint{color:var(--ink-3);font-size:11.5px;margin-top:5px}
+
+  .empty{border:1px dashed var(--line-strong);border-radius:var(--r);padding:34px 20px;text-align:center;color:var(--ink-2)}
+  .empty b{display:block;font-family:var(--mono);font-size:12px;color:var(--ink);margin-bottom:6px;letter-spacing:.04em}
+  .skel{height:11px;border-radius:2px;background:linear-gradient(90deg,var(--surface-2),var(--ground),var(--surface-2));
+        background-size:200% 100%;animation:sh 1.4s linear infinite}
+  @keyframes sh{to{background-position:-200% 0}}
+  @media(prefers-reduced-motion:reduce){.skel{animation:none}}
+
+  .diffline{font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-left:3px solid transparent}
+  .d-add{background:var(--read-soft);border-left-color:var(--read);color:var(--read)}
+  .d-del{background:var(--unsafe-soft);border-left-color:var(--unsafe);color:var(--unsafe)}
+  .d-same{color:var(--ink-3)}
+
+  @media(max-width:900px){
+    .app{grid-template-columns:1fr;grid-template-areas:"top" "main" "led";height:auto}
+    .rail{display:none}
+  }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="wm">gabriel<span>.</span></div>
+    <div class="tag"><span class="rec">●</span> capturing · <b>checkout-debug</b></div>
+    <div class="kbd"><b>⌘K</b>command<b>⌘⇧P</b>promote</div>
+  </header>
+
+  <nav class="rail" aria-label="Sections">
+    <div class="lbl">Evidence</div>
+    <button class="nav" data-go="inbox" aria-current="true"><span class="n">38</span>Inbox</button>
+    <button class="nav" data-go="review"><span class="n">6</span>To review</button>
+    <div class="lbl">Behaviours</div>
+    <button class="nav" data-go="library"><span class="n">24</span>Library</button>
+    <button class="nav" data-go="detail"><span class="n">—</span>Checkout</button>
+    <div class="lbl">Runs</div>
+    <button class="nav" data-go="gate"><span class="n">1</span>Awaiting approval</button>
+    <button class="nav" data-go="result"><span class="n">12</span>Replays</button>
+    <div class="lbl">Boundary</div>
+    <button class="nav" data-go="states"><span class="n">0</span>Egress</button>
+  </nav>
+
+  <main class="main">
+
+    <!-- ══ 1. EVIDENCE INBOX ══════════════════════════════════════════ -->
+    <section class="screen" data-screen="inbox" data-active="true">
+      <h1>Evidence inbox</h1>
+      <p class="sub">
+        Everything observed, newest first. Nothing here is an asset yet — evidence
+        becomes an asset when somebody promotes it. Sources are equal: a proxy
+        capture, an imported HAR and a pasted cURL all land in the same place.
+      </p>
+
+      <div class="row" style="margin-bottom:14px">
+        <span class="chip c-run">runnable · 31</span>
+        <span class="chip c-quiet">contextual · 7 · cannot be run</span>
+        <span class="grow"></span>
+        <button class="b quiet">Import HAR / PCAP</button>
+        <button class="b ghost">Select span</button>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th><th>Path</th>
+              <th>Status</th><th class="num">Latency</th>
+              <th>Auth</th><th>Effect</th><th>Source</th><th class="act"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="grp"><td colspan="8">session · checkout-debug · 10:02:01 → 10:02:09 · 12 requests</td></tr>
+            <tr>
+              <td><span class="verb">GET</span></td>
+              <td class="path">/flight/search?from=LHR&amp;to=JFK<span class="host">api.acme.test</span></td>
+              <td class="mono">200</td><td class="num">412ms</td>
+              <td><span class="chip c-ok">session</span></td>
+              <td><span class="chip c-read">read</span></td>
+              <td class="mono" style="color:var(--ink-3)">proxy</td>
+              <td class="act"><button class="b ghost">Promote</button></td>
+            </tr>
+            <tr>
+              <td><span class="verb">POST</span></td>
+              <td class="path">/cart/create<span class="host">api.acme.test</span></td>
+              <td class="mono">201</td><td class="num">88ms</td>
+              <td><span class="chip c-ok">session</span></td>
+              <td><span class="chip c-unsafe">performs again</span></td>
+              <td class="mono" style="color:var(--ink-3)">proxy</td>
+              <td class="act"><button class="b ghost">Promote</button></td>
+            </tr>
+            <tr>
+              <td><span class="verb">PUT</span></td>
+              <td class="path">/cart/c_8fa21/address<span class="host">api.acme.test</span></td>
+              <td class="mono">200</td><td class="num">61ms</td>
+              <td><span class="chip c-ok">session</span></td>
+              <td><span class="chip c-mutate">changes target</span></td>
+              <td class="mono" style="color:var(--ink-3)">proxy</td>
+              <td class="act"><button class="b ghost">Promote</button></td>
+            </tr>
+            <tr>
+              <td><span class="verb">POST</span></td>
+              <td class="path">/payment/session<span class="host">pay.acme.test</span></td>
+              <td class="mono" style="color:var(--unsafe)">422</td><td class="num">203ms</td>
+              <td><span class="chip c-ok">bearer</span></td>
+              <td><span class="chip c-unsafe">performs again</span></td>
+              <td class="mono" style="color:var(--ink-3)">proxy</td>
+              <td class="act"><button class="b" data-go="review">Promote</button></td>
+            </tr>
+            <tr>
+              <td><span class="verb">LINK</span></td>
+              <td class="path">/legacy/attach<span class="host">old.acme.test</span></td>
+              <td class="mono">200</td><td class="num">77ms</td>
+              <td><span class="chip c-quiet">none</span></td>
+              <td><span class="chip c-unknown">unclassified</span></td>
+              <td class="mono" style="color:var(--ink-3)">proxy</td>
+              <td class="act"><button class="b ghost">Promote</button></td>
+            </tr>
+
+            <tr class="grp"><td colspan="8">imported · payments-incident.har · from Priya · 7 entries</td></tr>
+            <tr>
+              <td><span class="verb">POST</span></td>
+              <td class="path">/refund<span class="host">pay.acme.test</span></td>
+              <td class="mono" style="color:var(--unsafe)">500</td><td class="num">1.4s</td>
+              <td><span class="chip c-ok">bearer</span></td>
+              <td><span class="chip c-unsafe">performs again</span></td>
+              <td class="mono" style="color:var(--ink-3)">HAR</td>
+              <td class="act"><button class="b ghost">Promote</button></td>
+            </tr>
+
+            <tr class="grp"><td colspan="8">contextual · OpenTelemetry · trace 4f2a…c1 · describes, cannot be run</td></tr>
+            <tr style="opacity:.72">
+              <td><span class="verb" style="color:var(--ink-3)">span</span></td>
+              <td class="path">checkout.payment.authorize<span class="host">pay-svc</span></td>
+              <td class="mono">error</td><td class="num">1.4s</td>
+              <td><span class="chip c-quiet">n/a</span></td>
+              <td><span class="chip c-quiet">no bytes</span></td>
+              <td class="mono" style="color:var(--ink-3)">OTel</td>
+              <td class="act"><span class="chip c-quiet" title="A span describes what happened. There is nothing in it to send.">correlate only</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">
+        Contextual evidence is dimmed and offers <b>correlate</b>, never <b>promote</b> —
+        a trace has no bytes to replay, and an interface that implied otherwise would
+        be lying about what it can do.
+      </p>
+    </section>
+
+    <!-- ══ 2. PROMOTION REVIEW ════════════════════════════════════════ -->
+    <section class="screen" data-screen="review">
+      <h1>Promote to a behaviour</h1>
+      <p class="sub">
+        The deliberate act. What was observed is shown as fact; what Gabriel
+        guessed is shown as a guess. Nothing is written until you name it.
+      </p>
+
+      <div class="panel">
+        <h2>Name it</h2>
+        <input class="t mono" value="checkout / create payment session" aria-label="Behaviour name">
+        <p class="hint">
+          Suggested from the path — <span class="inferred">create payment session</span>.
+          Edit it; the name is yours, and it is what a colleague will search for.
+        </p>
+      </div>
+
+      <div class="cols" style="margin-bottom:16px">
+        <div class="panel" style="margin:0">
+          <h2>Observed</h2>
+          <dl class="kv">
+            <dt>method</dt><dd class="observed">POST</dd>
+            <dt>url</dt><dd class="observed">https://pay.acme.test/payment/session</dd>
+            <dt>status</dt><dd class="observed">422 Unprocessable</dd>
+            <dt>captured</dt><dd class="observed">10:02:07 · session checkout-debug</dd>
+            <dt>capture id</dt><dd class="observed">c19fb5db5a0a0001</dd>
+          </dl>
+        </div>
+
+        <div class="panel" style="margin:0">
+          <h2>Inferred</h2>
+          <dl class="kv">
+            <dt>effect</dt><dd><span class="chip c-unsafe">performs again</span> <span class="inferred">from POST</span></dd>
+            <dt>belongs to</dt><dd><span class="inferred">the checkout flow</span></dd>
+            <dt>depends on</dt><dd><span class="inferred">cart/create</span></dd>
+          </dl>
+          <p class="hint">
+            Every inference is editable and none is written as fact. If Gabriel
+            guessed wrong, correcting it here is what teaches the library.
+          </p>
+        </div>
+      </div>
+
+      <!-- Full width, deliberately: this is the claim the product rests on,
+           and it was unreadable squeezed into a side column. -->
+      <div class="panel" style="border-color:var(--verified)">
+        <h2 style="color:var(--verified)">Credentials will not be stored</h2>
+        <div class="tw" style="border:0">
+          <table>
+            <thead><tr><th>Field</th><th>Observed</th><th>In the artifact</th><th>Rule</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="mono">Authorization</td>
+                <td>Bearer <span class="strike">eyJhbGciOiJIU…</span></td>
+                <td><span class="bound">{{secret:pay_token}}</span></td>
+                <td class="mono" style="color:var(--ink-3);font-size:10px">vault-value</td>
+              </tr>
+              <tr>
+                <td class="mono">Cookie</td>
+                <td>session=<span class="strike">8fa21c…</span></td>
+                <td><span class="bound">session reference</span></td>
+                <td class="mono" style="color:var(--ink-3);font-size:10px">session-ref</td>
+              </tr>
+              <tr>
+                <td class="mono">body.amount</td>
+                <td>4810</td>
+                <td><span class="chip c-ok">kept</span></td>
+                <td class="mono" style="color:var(--ink-3);font-size:10px">not a credential</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint">
+          <b>Bound at runtime, not saved.</b> The artifact is safe to commit and
+          still replays authenticated — that is the whole trick, so it is shown
+          rather than asserted.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>The file this writes</h2>
+        <pre>name = "checkout / create payment session"
+method = "POST"
+url = "{{base_url}}/payment/session"
+
+[auth]
+type = "session"
+
+[settings]
+effect = "unsafe"   # asks before replaying
+
+[origin]
+capture = "c19fb5db5a0a0001"</pre>
+      </div>
+
+      <div class="row end" style="margin-top:16px">
+        <button class="b quiet">Cancel</button>
+        <button class="b ghost">Preview replay</button>
+        <button class="b" data-go="detail">Promote</button>
+      </div>
+    </section>
+
+    <!-- ══ 3. BEHAVIOUR DETAIL ════════════════════════════════════════ -->
+    <section class="screen" data-screen="detail">
+      <div class="row" style="margin-bottom:4px">
+        <h1 style="margin:0">checkout / create payment session</h1>
+        <span class="chip c-unsafe">performs again</span>
+        <span class="chip c-ok">credential-free</span>
+        <span class="grow"></span>
+        <button class="b ghost">Compare runs</button>
+        <button class="b danger" data-go="gate">Run against target…</button>
+      </div>
+      <p class="sub">
+        A durable artifact. It is a file in the repository, so history, review and
+        blame are git's — Gabriel adds what git cannot: whether it still runs.
+      </p>
+
+      <div class="cols">
+        <div class="panel">
+          <h2>The request</h2>
+          <dl class="kv">
+            <dt>method</dt><dd>POST</dd>
+            <dt>url</dt><dd>{{base_url}}/payment/session</dd>
+            <dt>auth</dt><dd><span class="bound">session · bound at runtime</span></dd>
+            <dt>effect</dt><dd><span class="chip c-unsafe">performs again</span></dd>
+            <dt>owner</dt><dd>@priya</dd>
+            <dt>promoted</dt><dd>14 Jul 2026 · from capture c19fb5db</dd>
+          </dl>
+        </div>
+
+        <div class="panel">
+          <h2>Environments</h2>
+          <dl class="kv">
+            <dt>local</dt><dd><span class="chip c-ok">verified 2h ago</span></dd>
+            <dt>staging</dt><dd><span class="chip c-ok">verified yesterday</span></dd>
+            <dt>production</dt><dd><span class="chip c-unsafe">never run — unsafe</span></dd>
+          </dl>
+          <p class="hint">A behaviour is trusted per environment, not in general.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Version history</h2>
+        <div class="tw" style="border:0">
+          <table>
+            <thead><tr><th>Version</th><th>Changed</th><th>By</th><th>When</th><th>Still runs</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">v3</td><td>request body gained <span class="mono">currency</span></td><td>@sam</td><td class="mono">2d ago</td><td><span class="chip c-ok">yes</span></td></tr>
+              <tr><td class="mono">v2</td><td>base_url moved to environment</td><td>@priya</td><td class="mono">9d ago</td><td><span class="chip c-ok">yes</span></td></tr>
+              <tr><td class="mono">v1</td><td>promoted from capture</td><td>@priya</td><td class="mono">17d ago</td><td><span class="chip c-quiet">superseded</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Replay history</h2>
+        <div class="tw" style="border:0">
+          <table>
+            <thead><tr><th>When</th><th>Environment</th><th>By</th><th>Result</th><th class="num">Latency</th><th class="act"></th></tr></thead>
+            <tbody>
+              <tr><td class="mono">2h ago</td><td>local</td><td>@sam</td><td><span class="chip c-ok">200 · matched</span></td><td class="num">96ms</td><td class="act"><button class="b ghost" data-go="result">Diff</button></td></tr>
+              <tr><td class="mono">yesterday</td><td>staging</td><td>@priya</td><td><span class="chip c-mutate">422 · changed</span></td><td class="num">203ms</td><td class="act"><button class="b ghost" data-go="result">Diff</button></td></tr>
+              <tr><td class="mono">17d ago</td><td>local</td><td>@priya</td><td><span class="chip c-ok">201 · matched</span></td><td class="num">88ms</td><td class="act"><button class="b ghost" data-go="result">Diff</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ 4. REPLAY GATE ═════════════════════════════════════════════ -->
+    <section class="screen" data-screen="gate">
+      <h1>This will change the target</h1>
+      <p class="sub">
+        Not a consent banner. This is the payload, the destination, and what it
+        will do — and approving it approves <em>these exact bytes</em>, not the
+        idea of running something.
+      </p>
+
+      <div class="panel stop">
+        <div class="row">
+          <span class="chip c-unsafe">performs again</span>
+          <b class="mono">checkout / create payment session</b>
+        </div>
+        <p style="margin:10px 0 0">
+          Replaying this creates <b>a second payment session</b>. It is not a read,
+          and it is not idempotent — running it twice produces two.
+        </p>
+      </div>
+
+      <div class="cols">
+        <div class="panel">
+          <h2>Where it goes</h2>
+          <dl class="kv">
+            <dt>environment</dt><dd><b style="color:var(--unsafe)">production</b></dd>
+            <dt>host</dt><dd>pay.acme.test</dd>
+            <dt>method</dt><dd>POST /payment/session</dd>
+            <dt>credentials</dt><dd><span class="bound">bound now from vault · not stored</span></dd>
+          </dl>
+        </div>
+        <div class="panel">
+          <h2>Exactly what will be sent</h2>
+          <pre>POST /payment/session HTTP/1.1
+Host: pay.acme.test
+Authorization: Bearer ••••••••  ← bound at send
+Content-Type: application/json
+
+{"cart_id":"c_8fa21","amount":4810,"currency":"GBP"}</pre>
+          <p class="hint mono" style="font-size:10.5px">
+            payload sha256 6b1f…a904 — approval binds to this digest; anything
+            different is refused rather than sent.
+          </p>
+        </div>
+      </div>
+
+      <div class="row end" style="margin-top:4px">
+        <button class="b quiet" data-go="detail">Cancel</button>
+        <button class="b ghost">Dry run — send nothing</button>
+        <button class="b danger" data-go="result">Send it to production</button>
+      </div>
+    </section>
+
+    <!-- ══ 5. REPLAY RESULT / DIFF ════════════════════════════════════ -->
+    <section class="screen" data-screen="result">
+      <div class="row" style="margin-bottom:4px">
+        <h1 style="margin:0">Replay · staging · 2 minutes ago</h1>
+        <span class="chip c-mutate">changed</span>
+      </div>
+      <p class="sub">What changed since this behaviour was promoted, and what did not.</p>
+
+      <div class="panel attn">
+        <b>The contract changed.</b> The response gained <span class="mono">currency</span>
+        and the status moved 201 → 422. The request was unchanged, so this is the
+        server behaving differently — which is what the artifact exists to detect.
+      </div>
+
+      <div class="cols">
+        <div class="panel">
+          <h2>Status &amp; timing</h2>
+          <dl class="kv">
+            <dt>status</dt><dd><span class="mono" style="color:var(--ink-3)">201</span> → <span class="mono" style="color:var(--unsafe)">422</span></dd>
+            <dt>latency</dt><dd><span class="mono" style="color:var(--ink-3)">88ms</span> → <span class="mono">203ms</span> <span class="chip c-mutate">+131%</span></dd>
+            <dt>size</dt><dd><span class="mono">34 B → 61 B</span></dd>
+            <dt>headers</dt><dd>1 added, 0 removed</dd>
+          </dl>
+        </div>
+        <div class="panel">
+          <h2>Response body</h2>
+          <div class="diffline d-same">{</div>
+          <div class="diffline d-del">-  "session_id": "ps_4471",</div>
+          <div class="diffline d-add">+  "error": "schema_mismatch",</div>
+          <div class="diffline d-add">+  "field": "amount_minor",</div>
+          <div class="diffline d-same">}</div>
+        </div>
+      </div>
+
+      <div class="row end">
+        <button class="b quiet">Keep the old version</button>
+        <button class="b ghost">Open the capture</button>
+        <button class="b">Promote this as v4</button>
+      </div>
+    </section>
+
+    <!-- ══ 6. TEAM LIBRARY ════════════════════════════════════════════ -->
+    <section class="screen" data-screen="library">
+      <h1>Behaviour library</h1>
+      <p class="sub">
+        What this team has learned, in a form that still runs. Searchable by what
+        it does — not by endpoint, because nobody remembers endpoints.
+      </p>
+
+      <input class="t" placeholder="checkout, refund, login, provision workspace…" aria-label="Search behaviours" style="margin-bottom:14px">
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Behaviour</th><th>Effect</th><th>Owner</th><th class="num">Runs</th><th>Last verified</th><th>Environments</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>checkout</b> <span style="color:var(--ink-3)">· 6 requests</span></td>
+              <td><span class="chip c-unsafe">performs again</span></td>
+              <td>@priya</td><td class="num">148</td>
+              <td class="mono">2h ago</td>
+              <td><span class="chip c-ok">local</span> <span class="chip c-ok">staging</span></td>
+            </tr>
+            <tr>
+              <td><b>log in</b> <span style="color:var(--ink-3)">· 2 requests</span></td>
+              <td><span class="chip c-mutate">changes target</span></td>
+              <td>@sam</td><td class="num">2,104</td>
+              <td class="mono">11m ago</td>
+              <td><span class="chip c-ok">local</span> <span class="chip c-ok">staging</span> <span class="chip c-ok">prod</span></td>
+            </tr>
+            <tr>
+              <td><b>search flights</b> <span style="color:var(--ink-3)">· 1 request</span></td>
+              <td><span class="chip c-read">read</span></td>
+              <td>@sam</td><td class="num">5,882</td>
+              <td class="mono">3m ago</td>
+              <td><span class="chip c-ok">local</span> <span class="chip c-ok">staging</span> <span class="chip c-ok">prod</span></td>
+            </tr>
+            <tr>
+              <td><b>issue a refund</b> <span style="color:var(--ink-3)">· 4 requests</span></td>
+              <td><span class="chip c-unsafe">performs again</span></td>
+              <td>@dana</td><td class="num">31</td>
+              <td class="mono">6d ago</td>
+              <td><span class="chip c-ok">local</span></td>
+            </tr>
+            <tr>
+              <td><b>provision workspace</b> <span style="color:var(--ink-3)">· 11 requests</span></td>
+              <td><span class="chip c-unsafe">performs again</span></td>
+              <td>@dana</td><td class="num">7</td>
+              <td class="mono">21d ago</td>
+              <td><span class="chip c-mutate">stale — re-verify</span></td>
+            </tr>
+            <tr>
+              <td><b>attach legacy document</b> <span style="color:var(--ink-3)">· 1 request</span></td>
+              <td><span class="chip c-unknown">unclassified</span></td>
+              <td>@sam</td><td class="num">0</td>
+              <td class="mono" style="color:var(--ink-3)">never</td>
+              <td><span class="chip c-quiet">dry run only</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">
+        An unclassifiable operation stays in the library and stays runnable only as
+        a dry run. Understanding it is still worth having; running it is not on
+        offer.
+      </p>
+    </section>
+
+    <!-- ══ STATES ═════════════════════════════════════════════════════ -->
+    <section class="screen" data-screen="states">
+      <h1>States</h1>
+      <p class="sub">The screens nobody designs, which is where products feel unfinished.</p>
+
+      <div class="cols">
+        <div class="stack">
+          <div>
+            <h2>Empty · nothing captured</h2>
+            <div class="empty">
+              <b>No evidence yet</b>
+              Start the proxy and use your app. Requests appear here as they happen.
+              <div style="margin-top:12px"><button class="b">Start capturing</button></div>
+            </div>
+          </div>
+
+          <div>
+            <h2>Empty · nothing promoted</h2>
+            <div class="empty">
+              <b>No behaviours yet</b>
+              Promote something from the inbox and it becomes a file you can commit,
+              share, and run again.
+            </div>
+          </div>
+
+          <div>
+            <h2>Loading</h2>
+            <div class="panel" style="margin:0">
+              <div class="skel" style="width:38%;margin-bottom:9px"></div>
+              <div class="skel" style="width:88%;margin-bottom:9px"></div>
+              <div class="skel" style="width:64%"></div>
+              <p class="hint">Only shown past 300ms. Cold start is 7.5ms measured — a
+                spinner below that invents latency to look busy.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div>
+            <h2>Error · replay failed</h2>
+            <div class="panel stop" style="margin:0">
+              <b class="mono">Connection refused — pay.acme.test:443</b>
+              <p style="margin:8px 0 0">
+                Nothing was sent. The request was resolved and the connection
+                rejected before any bytes left this machine.
+              </p>
+              <p class="hint">
+                Possible causes: the host is down, a VPN is required, or
+                <span class="mono">HTTPS_PROXY</span> is redirecting. Gabriel does not
+                know which — it reports what happened, not what it guesses.
+              </p>
+              <div class="row end" style="margin-top:10px">
+                <button class="b quiet">Run diagnostics</button>
+                <button class="b ghost">Retry</button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h2>Unsafe · blocked without a terminal</h2>
+            <div class="panel attn" style="margin:0">
+              <b class="mono">Skipped — checkout / create payment session</b>
+              <p style="margin:8px 0 0">
+                This performs an action and there was nobody to ask. 5 of 6
+                behaviours ran; this one did not.
+              </p>
+              <p class="hint">Pass <span class="mono">--yes</span> in CI to include it —
+                a config that says so is a reviewable decision, whereas a prompt in a
+                pipeline is a hung build.</p>
+            </div>
+          </div>
+
+          <div>
+            <h2>Contextual · cannot be run</h2>
+            <div class="panel" style="margin:0">
+              <div class="row"><span class="chip c-quiet">no bytes</span><b class="mono">checkout.payment.authorize</b></div>
+              <p style="margin:8px 0 0">
+                A trace span describes what happened. There is nothing in it to send,
+                so there is no run button — not a disabled one, none.
+              </p>
+              <div class="row end" style="margin-top:10px">
+                <button class="b ghost">Find the captured request</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="led">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="claim">Nothing has left this machine.</span>
+    <span class="det">0 of 1,247 captured requests sent anywhere · 24 behaviours held locally · last egress: never</span>
+  </footer>
+</div>
+
+<script>
+  const screens = document.querySelectorAll('.screen');
+  const navs = document.querySelectorAll('.nav');
+  function go(name) {
+    screens.forEach(s => s.dataset.active = String(s.dataset.screen === name));
+    navs.forEach(n => n.setAttribute('aria-current', String(n.dataset.go === name)));
+    document.querySelector('.main').scrollTop = 0;
+  }
+  document.querySelectorAll('[data-go]').forEach(el =>
+    el.addEventListener('click', () => go(el.dataset.go)));
+</script>
