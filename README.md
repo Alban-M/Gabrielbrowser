@@ -446,6 +446,26 @@ The narrowness is the point. "Not yet distributed and a fixed credential leak"
 is a different situation from "we thought of something better", and only the
 first one moves a tag.
 
+**Two separate grounds, and they should not be conflated:**
+
+- **Security exception** — an undistributed tag moves when the published
+  artifact would *violate trust*. Narrow, three conditions above, and it stays
+  narrow.
+- **Publishability** — an undistributed tag moves when the tagged commit
+  *cannot complete its own release path*. Not a judgement call: the release
+  fails, nothing is published, and the tag names something that can never exist
+  as artifacts.
+
+`v0.1.0-preview.1` was re-cut twice, once on each. First for the credential
+leak. Then again because every `stdout` write panicked on a closed pipe, which
+failed the stranger-install smoke step and left both publish jobs skipped — a
+broken pipe is an ordinary bug rather than a trust leak, so the security
+exception did not apply and did not need to. Reaching for it would have stretched
+a rule that was written to resist exactly that.
+
+Publishability is the more general of the two, and probably the one to reach for
+first.
+
 Before a release, walk [docs/manual-test.md](docs/manual-test.md) — ten minutes,
 no network needed, and it exercises the loop the automated suite can only test
 in pieces.
