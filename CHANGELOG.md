@@ -65,6 +65,9 @@ answers exist, the release becomes 0.1.0.
 - Credential-carrying headers (`Authorization`, `Cookie`, and relatives) are
   masked by name as well as by value, so a session cookie — which never passes
   through the vault — is not printed by `gabriel curl` or `--dry-run`.
+- A reader that stops early — `gabriel ls | head -1`, `run --quiet | jq` — ends
+  the command quietly instead of panicking, the way every other tool in a
+  pipeline does.
 - Replay is classified by effect: anything that changes state — including
   `PUT` and `DELETE`, whose first replay still lands — asks before running,
   `--dry-run` sends nothing, and `--yes` is the CI opt-in.

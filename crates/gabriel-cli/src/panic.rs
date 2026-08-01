@@ -54,11 +54,43 @@ fn registered() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Did this panic come from writing to a pipe nobody is reading?
+///
+/// `gabriel ls | head -1` is a normal thing to type. The reader exits after the
+/// first line, the pipe closes, and the next write fails with `EPIPE` — which
+/// Rust turns into a panic, because it sets `SIGPIPE` to ignore at startup
+/// rather than letting the process die the way `ls` or `grep` would.
+///
+/// The consumer having stopped reading is not a crash and not Gabriel's
+/// business. Reporting it as a bug is worse than useless: it prints a bug report
+/// about a pipeline working exactly as intended.
+fn is_broken_pipe(payload: &str) -> bool {
+    payload.contains("Broken pipe")
+        || payload.contains("os error 32")
+        || (payload.contains("failed printing to") && payload.contains("BrokenPipe"))
+}
+
 /// Install the hook. Called once, from `main`.
 pub fn install() {
     std::panic::set_hook(Box::new(|info| {
+        let payload = payload_of(info);
+        if is_broken_pipe(&payload) {
+            // Exit quietly, the way every other command in a pipeline does.
+            // Zero because the pipeline's result belongs to the reader: in
+            // `gabriel ls | grep -q x` the answer is grep's, not ours.
+            std::process::exit(0);
+        }
         eprint!("{}", render(info, &registered()));
     }));
+}
+
+/// The message a panic carried, whatever shape it arrived in.
+fn payload_of(info: &PanicHookInfo<'_>) -> String {
+    info.payload()
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| info.payload().downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "(no message)".to_string())
 }
 
 /// Build what a panic prints.
@@ -67,15 +99,9 @@ pub fn install() {
 /// what the real hook wrote to the real stderr, and this is the part where a
 /// secret would survive.
 fn render(info: &PanicHookInfo<'_>, secrets: &[String]) -> String {
-    // The payload is whatever was passed to `panic!` — a `&str` for a literal,
-    // a `String` once it has been formatted, and neither for a panic raised by
-    // something other than the macro.
-    let payload = info
-        .payload()
-        .downcast_ref::<&str>()
-        .map(|s| s.to_string())
-        .or_else(|| info.payload().downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "(no message)".to_string());
+    // Whatever was passed to `panic!` — a `&str` for a literal, a `String` once
+    // formatted, and neither for a panic raised by something else.
+    let payload = payload_of(info);
 
     let location = info
         .location()
@@ -211,5 +237,32 @@ mod tests {
         // A blank would turn every character boundary into a match.
         register_secrets([String::new()]);
         assert!(!registered().iter().any(|s| s.is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod broken_pipe {
+    use super::is_broken_pipe;
+
+    /// What Rust actually produces when a reader closes the pipe. Taken from a
+    /// real failure rather than composed: this is the string the release smoke
+    /// job printed on macOS.
+    #[test]
+    fn the_real_message_is_recognised() {
+        assert!(is_broken_pipe(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        ));
+    }
+
+    #[test]
+    fn a_genuine_crash_is_not_mistaken_for_one() {
+        for real in [
+            "index out of bounds: the len is 3 but the index is 7",
+            "called `Option::unwrap()` on a `None` value",
+            "the vault could not be opened",
+            "connection reset by peer",
+        ] {
+            assert!(!is_broken_pipe(real), "swallowed a real panic: {real}");
+        }
     }
 }

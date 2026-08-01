@@ -251,6 +251,13 @@ jobs:
           gabriel env | grep -q dev
           gabriel doctor | grep -q "collection"
 
+          # A reader that stops before we finish writing. Rust ignores SIGPIPE,
+          # so an unguarded CLI panics here — which is exactly how this job
+          # failed once, on macOS, where the race went the other way.
+          gabriel ls | true
+          gabriel doctor | true
+          gabriel capture ls | true
+
       - name: An offline request is generated and inspected
         shell: bash
         env:
