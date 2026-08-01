@@ -136,25 +136,51 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=$(ls gabriel-*.tar.gz gabriel-*.zip 2>/dev/null | head -1)
+          # nullglob, not `ls`: with two patterns one of them never matches —
+          # there is no .zip on Unix and no .tar.gz on Windows — and `ls` returns
+          # non-zero for the unmatched one, which `set -e` plus `pipefail` turns
+          # into a dead step before anything is verified. Redirecting stderr hid
+          # the message but not the exit code.
+          shopt -s nullglob
+          archives=(gabriel-*.tar.gz gabriel-*.zip)
+          archive="${archives[0]:-}"
+          [ -n "$archive" ] || { echo "no archive was downloaded"; ls -la; exit 1; }
           echo "archive: $archive"
-          if command -v shasum >/dev/null; then
-            shasum -a 256 -c "$archive.sha256"
-          else
-            # certutil's output is not in `sha256sum -c` format, so compare by hand.
-            expected=$(grep -Eo '\b[0-9a-fA-F]{64}\b' "$archive.sha256" | head -1 | tr 'A-Z' 'a-z')
+
+          # Compare digests directly rather than handing the file to `-c`.
+          # The previous version branched on which tool was installed, but the
+          # question is which tool *wrote* the file: Git Bash on Windows has
+          # `shasum`, while the checksum there was produced by `certutil` in a
+          # different format, so the tool test would have chosen the wrong
+          # branch. Pulling the hash out works for both formats and needs no
+          # guess.
+          expected=$(grep -Eo '[0-9a-fA-F]{64}' "$archive.sha256" | head -1 | tr 'A-Z' 'a-z')
+          if command -v sha256sum >/dev/null; then
             actual=$(sha256sum "$archive" | cut -d' ' -f1)
-            echo "expected $expected"
-            echo "actual   $actual"
-            [ "$expected" = "$actual" ]
+          else
+            actual=$(shasum -a 256 "$archive" | cut -d' ' -f1)
           fi
+          echo "expected $expected"
+          echo "actual   $actual"
+          if [ -z "$expected" ]; then
+            echo "no digest found in $archive.sha256"; cat "$archive.sha256"; exit 1
+          fi
+          [ "$expected" = "$actual" ]
 
       - name: Install the artifact the way a user would
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.local/bin"
-          archive=$(ls gabriel-*.tar.gz gabriel-*.zip 2>/dev/null | head -1)
+          # nullglob, not `ls`: with two patterns one of them never matches —
+          # there is no .zip on Unix and no .tar.gz on Windows — and `ls` returns
+          # non-zero for the unmatched one, which `set -e` plus `pipefail` turns
+          # into a dead step before anything is verified. Redirecting stderr hid
+          # the message but not the exit code.
+          shopt -s nullglob
+          archives=(gabriel-*.tar.gz gabriel-*.zip)
+          archive="${archives[0]:-}"
+          [ -n "$archive" ] || { echo "no archive was downloaded"; ls -la; exit 1; }
           case "$archive" in
             *.tar.gz) tar xzf "$archive" ;;
             *.zip)    unzip -q "$archive" ;;
