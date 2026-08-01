@@ -453,6 +453,20 @@ consent screen; that experiment is expensive, which is why
 in it is honestly empty. Inference is the right tool when observation is dear.
 It is the wrong one when observation costs thirty seconds.
 
+**A test that cannot prove it exercised the thing can pass while testing
+nothing.** This is the second-order version of the rule above, and it bit three
+times in one afternoon of writing the manual pass. `NO_PROXY=localhost,127.0.0.1`
+made curl ignore `--proxy`, so requests reached the origin directly and the
+capture check passed on traffic that never went through Gabriel. Orphaned
+processes held the proxy port, so `capture start` failed into a redirected log
+and every later step tested a different collection. And `grep secret missing-file`
+finds nothing and looks exactly like success.
+
+So a check earns trust by being able to fail for the right reason. Prove the path
+was taken — the port bound, the proxy was used, the file exists — before
+asserting anything about what came out of it. Otherwise the strongest-sounding
+assertion in a suite is the one testing least.
+
 The installer has its own suite because it is a trust boundary — the one piece
 of software someone runs before they have any reason to trust it, usually piped
 straight into a shell. Both bugs it has had were invisible on the page and
