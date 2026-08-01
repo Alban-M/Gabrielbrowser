@@ -378,3 +378,106 @@ mod tests {
         assert_eq!(redactor.apply("about"), "about");
     }
 }
+
+/// Headers whose value is a credential by definition.
+///
+/// The [`Redactor`] masks values it was *told* are secrets — everything the
+/// resolver pulled out of the vault. A session cookie never goes through the
+/// vault: it comes from the browser session Gabriel captured, so the redactor
+/// has never seen it and cannot mask it by value.
+///
+/// That gap is invisible in a test that seeds the redactor with the answer, and
+/// it showed up the first time a real session was printed: `gabriel curl`
+/// rendered `Cookie: session_id=…` in full while the documentation said
+/// credentials were masked by default.
+///
+/// So these are masked by *name* as well. It is a short, closed list of headers
+/// whose entire purpose is carrying a credential — not a general deny-list
+/// hoping to guess at values.
+pub fn is_credential_header(name: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "api-key",
+        "x-auth-token",
+        "x-access-token",
+        "x-csrf-token",
+        "authentication",
+    ];
+    let lowered = name.trim().to_ascii_lowercase();
+    NAMES.contains(&lowered.as_str())
+}
+
+/// Render a header value for a surface a person will read or paste.
+///
+/// `show` is the explicit opt-out — the user asking for the real thing.
+pub fn header_for_display(name: &str, value: &str, redactor: &Redactor, show: bool) -> String {
+    if show {
+        return value.to_string();
+    }
+    if is_credential_header(name) {
+        return "••••redacted••••".to_string();
+    }
+    redactor.apply(value)
+}
+
+#[cfg(test)]
+mod credential_header_tests {
+    use super::*;
+
+    #[test]
+    fn the_headers_that_carry_credentials_are_known() {
+        for name in [
+            "Authorization",
+            "authorization",
+            "Cookie",
+            "COOKIE",
+            "Set-Cookie",
+            "X-API-Key",
+            "x-auth-token",
+            "Proxy-Authorization",
+        ] {
+            assert!(is_credential_header(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn ordinary_headers_are_not_touched() {
+        for name in [
+            "Accept",
+            "Content-Type",
+            "User-Agent",
+            "X-Request-Id",
+            "Referer",
+        ] {
+            assert!(!is_credential_header(name), "{name}");
+        }
+    }
+
+    /// The case that was leaking: a value the redactor has never been told
+    /// about, in a header whose whole job is to carry one.
+    #[test]
+    fn a_session_cookie_is_masked_even_when_the_redactor_knows_nothing() {
+        let redactor = Redactor::default();
+        let shown = header_for_display("Cookie", "session_id=abc123", &redactor, false);
+        assert!(!shown.contains("abc123"), "{shown}");
+    }
+
+    #[test]
+    fn show_secrets_still_shows_them() {
+        let redactor = Redactor::default();
+        let shown = header_for_display("Cookie", "session_id=abc123", &redactor, true);
+        assert_eq!(shown, "session_id=abc123");
+    }
+
+    /// A vault value in an ordinary header is still masked by value.
+    #[test]
+    fn value_masking_still_applies_to_ordinary_headers() {
+        let redactor = Redactor::new(vec!["sk-live-xyz".to_string()]);
+        let shown = header_for_display("X-Custom", "token=sk-live-xyz", &redactor, false);
+        assert!(!shown.contains("sk-live-xyz"), "{shown}");
+    }
+}

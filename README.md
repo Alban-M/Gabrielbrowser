@@ -319,6 +319,15 @@ direction — a `POST` used for search — so `[settings] effect = "read"` lets 
 author say *I checked*. Promotion never writes it: a capture cannot know whether
 the endpoint it saw was a search or a purchase.
 
+**Credential-carrying headers are masked by name, not only by value.** The
+redactor masks what it was *told* is a secret — everything the resolver pulled
+from the vault. A session cookie never goes through the vault, so it was printed
+in full by `gabriel curl` and `--dry-run`: two surfaces whose entire purpose is
+being pasted somewhere. `Authorization`, `Cookie` and their relatives are now
+masked because of what they are, with `--show-secrets` as the deliberate
+opt-out. The canary suite missed this because the test seeded the redactor with
+the answer, which no real session does.
+
 **Request paths cannot escape the collection.** `promote --to ../../elsewhere`
 is refused rather than obeyed.
 

@@ -14,7 +14,11 @@ use gabriel_engine::SentRequest;
 /// Headers curl sets itself, which would be noise (or wrong) if repeated.
 const CURL_MANAGED: &[&str] = &["content-length", "host"];
 
-pub fn to_curl(request: &SentRequest, redactor: &Redactor, multiline: bool) -> String {
+/// `show` is the user explicitly asking for the real credentials. A generated
+/// curl command is made to be pasted, so a header whose job is carrying a
+/// credential is masked by name — the redactor only knows vault values, and a
+/// session cookie is never one of them.
+pub fn to_curl(request: &SentRequest, redactor: &Redactor, multiline: bool, show: bool) -> String {
     let joiner = if multiline { " \\\n  " } else { " " };
     let mut parts = vec!["curl".to_string()];
 
@@ -29,7 +33,10 @@ pub fn to_curl(request: &SentRequest, redactor: &Redactor, multiline: bool) -> S
         }
         parts.push(format!(
             "-H {}",
-            quote(&format!("{name}: {}", redactor.apply(value)))
+            quote(&format!(
+                "{name}: {}",
+                gabriel_core::vars::header_for_display(name, value, redactor, show)
+            ))
         ));
     }
 
@@ -73,7 +80,12 @@ mod tests {
 
     #[test]
     fn a_get_omits_the_method_flag() {
-        let command = to_curl(&request("GET", "https://api.test/users"), &plain(), false);
+        let command = to_curl(
+            &request("GET", "https://api.test/users"),
+            &plain(),
+            false,
+            false,
+        );
         assert_eq!(command, "curl 'https://api.test/users'");
     }
 
@@ -82,6 +94,7 @@ mod tests {
         let command = to_curl(
             &request("delete", "https://api.test/users/1"),
             &plain(),
+            false,
             false,
         );
         assert!(command.starts_with("curl -X DELETE "), "{command}");
@@ -96,7 +109,7 @@ mod tests {
             .push(("Accept".into(), "application/json".into()));
         req.body = Some(r#"{"name":"ada"}"#.into());
 
-        let command = to_curl(&req, &plain(), false);
+        let command = to_curl(&req, &plain(), false, false);
         assert!(
             command.contains("-H 'Content-Type: application/json'"),
             "{command}"
@@ -118,7 +131,7 @@ mod tests {
         req.headers.push(("host".into(), "api.test".into()));
         req.headers.push(("X-Keep".into(), "yes".into()));
 
-        let command = to_curl(&req, &plain(), false);
+        let command = to_curl(&req, &plain(), false, false);
         assert!(
             !command.to_lowercase().contains("content-length"),
             "{command}"
@@ -137,7 +150,7 @@ mod tests {
         req.body = Some(r#"{"token":"sk-live-SECRET"}"#.into());
 
         let redactor = Redactor::new(vec!["sk-live-SECRET".to_string()]);
-        let command = to_curl(&req, &redactor, false);
+        let command = to_curl(&req, &redactor, false, false);
 
         assert!(
             !command.contains("sk-live-SECRET"),
@@ -197,7 +210,7 @@ mod tests {
         let body = r#"{"note":"it's a 'quoted' value","cmd":"$(echo hi)"}"#;
         req.body = Some(body.to_string());
 
-        let command = to_curl(&req, &plain(), false);
+        let command = to_curl(&req, &plain(), false, false);
         let arg = command
             .split_once("--data-raw ")
             .expect("data flag present")
@@ -209,7 +222,7 @@ mod tests {
     #[test]
     fn a_url_with_a_quote_is_also_escaped() {
         let url = "https://api.test/?q='or'1'='1";
-        let command = to_curl(&request("GET", url), &plain(), false);
+        let command = to_curl(&request("GET", url), &plain(), false, false);
         let arg = command.split_once("curl ").expect("curl prefix").1;
         assert_eq!(shell_roundtrip(arg), url);
     }
@@ -219,7 +232,7 @@ mod tests {
         let mut req = request("POST", "https://api.test/x");
         req.headers
             .push(("Accept".into(), "application/json".into()));
-        let command = to_curl(&req, &plain(), true);
+        let command = to_curl(&req, &plain(), true, false);
 
         assert!(
             command.contains(" \\\n  "),
@@ -248,7 +261,7 @@ mod tests {
     fn an_empty_body_adds_no_data_flag() {
         let mut req = request("POST", "https://api.test/x");
         req.body = Some(String::new());
-        assert!(!to_curl(&req, &plain(), false).contains("--data-raw"));
+        assert!(!to_curl(&req, &plain(), false, false).contains("--data-raw"));
     }
 }
 
@@ -279,9 +292,76 @@ mod no_secret_leaves_the_process {
 
     #[test]
     fn a_generated_curl_command_carries_no_secret() {
-        let command = to_curl(&a_request_full_of_secrets(), &knows_every_secret(), true);
+        let command = to_curl(
+            &a_request_full_of_secrets(),
+            &knows_every_secret(),
+            true,
+            false,
+        );
         assert_no_secret("curl codegen (multiline)", &command);
-        let command = to_curl(&a_request_full_of_secrets(), &knows_every_secret(), false);
+        let command = to_curl(
+            &a_request_full_of_secrets(),
+            &knows_every_secret(),
+            false,
+            false,
+        );
         assert_no_secret("curl codegen (one line)", &command);
+    }
+}
+
+/// The leak the canary suite missed, and why it missed it.
+#[cfg(test)]
+mod a_credential_the_redactor_never_saw {
+    use super::*;
+    use gabriel_testkit::assert_no_secret_of;
+
+    fn request(method: &str, url: &str) -> SentRequest {
+        SentRequest {
+            method: method.to_string(),
+            url: url.to_string(),
+            headers: Vec::new(),
+            body: None,
+        }
+    }
+
+    /// A session cookie never passes through the vault, so `used_secrets()`
+    /// does not contain it and `Redactor` cannot mask it by value. The earlier
+    /// canary test passed because it *seeded the redactor with the answer* —
+    /// which no real session does. This one gives the redactor nothing.
+    #[test]
+    fn a_session_cookie_is_masked_with_an_empty_redactor() {
+        let mut req = request("GET", "https://api.test/me");
+        req.headers
+            .push(("Cookie".into(), "session_id=abc123".into()));
+        req.headers
+            .push(("Authorization".into(), "Bearer tok_live_9f2".into()));
+
+        let command = to_curl(&req, &Redactor::default(), false, false);
+        assert_no_secret_of(
+            "curl codegen with an unseeded redactor",
+            &command,
+            &["abc123", "tok_live_9f2"],
+        );
+    }
+
+    #[test]
+    fn show_secrets_is_still_an_escape_hatch() {
+        let mut req = request("GET", "https://api.test/me");
+        req.headers
+            .push(("Cookie".into(), "session_id=abc123".into()));
+
+        let command = to_curl(&req, &Redactor::default(), false, true);
+        assert!(command.contains("abc123"), "--show-secrets stopped working");
+    }
+
+    /// Masking by header name must not swallow ordinary headers.
+    #[test]
+    fn ordinary_headers_survive() {
+        let mut req = request("GET", "https://api.test/me");
+        req.headers
+            .push(("Accept".into(), "application/json".into()));
+
+        let command = to_curl(&req, &Redactor::default(), false, false);
+        assert!(command.contains("application/json"), "{command}");
     }
 }

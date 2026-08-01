@@ -1,7 +1,17 @@
 # Manual test pass
 
-Every step below was run against the release binary and the output is what it
-actually printed. Takes about ten minutes.
+**A local maintainer smoke pass**, not a release verification. It builds from
+the working tree and exercises it. That is a different claim from "the published
+artifact works" — which is what the release workflow's smoke job asserts, by
+downloading the artifact, verifying its checksum and installing it before
+anything is signed.
+
+If you want to test the *release*, install the downloaded archive and run these
+steps against that binary instead. Do not build locally and call the result a
+release check.
+
+Every step below was run against the binary built from this tree, and the output
+is what it actually printed. Takes about ten minutes.
 
 This is the **maintainer's** pass — "does this build work" — and it is a
 different thing from [docs/preview-1.md](preview-1.md), which is about watching
@@ -19,6 +29,7 @@ machine was print `zsh: command not found: gabriel` five times.
 
 ```sh
 cargo build --release
+mkdir -p ~/.local/bin
 install -m 755 target/release/gabriel ~/.local/bin/gabriel
 gabriel --version                     # expect: gabriel 0.1.0-preview.1
 ```
@@ -64,8 +75,13 @@ Server(("127.0.0.1", 8899), Handler).serve_forever()
 
 ```sh
 python3 origin.py &
+ORIGIN_PID=$!
 curl -s http://127.0.0.1:8899/api/me      # {"path": "/api/me", "authed": false}
 ```
+
+Keep the pid. `pkill -f origin.py` at the end would also kill an unrelated
+`origin.py` somebody else is running, and `pkill -f "gabriel capture"` would kill
+a capture session that has nothing to do with this test.
 
 > **Gotcha that cost ten minutes.** A single-threaded `TCPServer` deadlocks
 > here. The proxy holds an HTTP/1.1 keep-alive connection open, and a
@@ -85,7 +101,18 @@ gabriel ls
 
 ```sh
 gabriel capture start --port 8888 &
+PROXY_PID=$!
+sleep 2
+lsof -nP -iTCP:8888 -sTCP:LISTEN >/dev/null || { echo "the proxy did not start"; exit 1; }
 ```
+
+**Check that it bound before going on.** If the port is already held — by a
+capture session somebody forgot to stop — Gabriel prints
+`could not listen on 127.0.0.1:8888: Address already in use` and exits, but a
+backgrounded process with its output redirected takes that message with it.
+Every step after this one would then pass while testing nothing: curl would
+reach the *other* proxy, and the captures would land in somebody else's
+collection. Writing this document, that is exactly what happened.
 
 **Pass:** prints the listen address, the session name, and the path to a CA it
 generated. Check the permissions:
@@ -104,16 +131,22 @@ have to read it to trust it. An earlier version of this document checked the
 ## 3. Record real traffic
 
 ```sh
-curl -s --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/login -c jar.txt
-curl -s --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/api/me -b jar.txt
+curl -s --noproxy '' --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/login -c jar.txt
+curl -s --noproxy '' --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/api/me -b jar.txt
 ```
 
 **Pass:** the second returns `"authed": true`.
 
+`--noproxy ''` is load-bearing. Many machines set
+`NO_PROXY=localhost,127.0.0.1`, which makes curl ignore `--proxy` for exactly
+these addresses — the requests would succeed, nothing would be captured, and the
+test would report a pass for a proxy it never went through. A test that can
+silently lie is worse than no test.
+
 Optional, proves HTTPS interception (needs network):
 
 ```sh
-curl -s --proxy http://127.0.0.1:8888 --cacert gabriel/.runtime/gabriel-ca.pem \
+curl -s --noproxy '' --proxy http://127.0.0.1:8888 --cacert gabriel/.runtime/gabriel-ca.pem \
   https://example.com -o /dev/null -w "%{http_code}\n"      # 200
 ```
 
@@ -141,8 +174,17 @@ cat gabriel/requests/users/me.toml
 **Pass, and this is the assertion that matters:**
 
 ```sh
-grep abc123 gabriel/requests/users/me.toml     # must find NOTHING
+test -f gabriel/requests/users/me.toml && \
+  ! grep -q abc123 gabriel/requests/users/me.toml && \
+  echo "PASS — the file exists and has no credential in it"
 ```
+
+Written as one assertion rather than `grep abc123 …` on its own, because a
+missing file makes a bare grep print a warning and produce no matches — which
+reads exactly like success to somebody scanning for "no output". *Absent* and
+*clean* are different results and the check has to tell them apart. This is the
+central claim of the product; it should not be the loosest test in the
+document.
 
 The file should carry `[auth] type = "session"` instead of a `Cookie` header.
 It is safe to commit. Gabriel also notes when it keeps a literal URL because
@@ -161,10 +203,68 @@ credential in it produced an authenticated request.
 gabriel run users/me --quiet | python3 -m json.tool
 ```
 
-## 7. Diff two responses
+## 7. Replaying something that changes the world
+
+The step this document did not have until the safety model existed — and the one
+most likely to look like a bug if you have not seen it.
 
 ```sh
-curl -s --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/api/me -b jar.txt
+curl -s --noproxy '' --proxy http://127.0.0.1:8888 -X POST \
+  http://127.0.0.1:8899/orders -b jar.txt
+sleep 1
+POSTED=$(gabriel capture ls | grep orders | head -1 | awk '{print $1}')
+gabriel promote "$POSTED" --to orders/place
+gabriel run orders/place < /dev/null
+```
+
+**Pass — and the pass is a refusal:**
+
+```
+careful: `orders/place` is POST unsafe — performs the action again — a second one
+error: refusing to run `orders/place` without a terminal to ask at.
+```
+
+Nothing was ordered. Redirecting from `/dev/null` is what a pipeline or a CI job
+looks like; Gabriel will not guess on your behalf where nobody can answer.
+
+```sh
+gabriel run orders/place --dry-run    # resolves everything, sends nothing
+gabriel run orders/place --yes        # actually places the order
+gabriel run --all < /dev/null         # runs the reads, skips the rest, says how many
+```
+
+**Pass:** the dry run prints the real payload and the order count does not move;
+`--yes` returns `201` and it does; `run --all` finishes with
+`note: 1 of N request(s) were not run — you declined to repeat them`.
+
+At a terminal it prompts instead. `PUT` and `DELETE` are announced too — the
+first replay of a `DELETE` still deletes, so idempotent is not treated as safe.
+
+## 8. Credentials are masked where you would paste them
+
+```sh
+gabriel curl users/me | grep -i cookie
+gabriel run orders/place --dry-run | grep -i cookie
+```
+
+**Pass:** both print `••••redacted••••`, never `session_id=abc123`.
+
+This is worth its own step because it failed once. The redactor masks values it
+was *told* are secrets — everything resolved from the vault — and a session
+cookie never goes through the vault, so it was printed in full by two surfaces
+whose whole purpose is being pasted somewhere. Credential-carrying headers are
+masked by name now.
+
+```sh
+gabriel curl users/me --show-secrets | grep -i cookie
+```
+
+**Pass:** the real value, because that is what was asked for.
+
+## 9. Diff two responses
+
+```sh
+curl -s --noproxy '' --proxy http://127.0.0.1:8888 http://127.0.0.1:8899/api/me -b jar.txt
 NEWER=$(gabriel capture ls | grep '/api/me' | sed -n '1p' | awk '{print $1}')
 OLDER=$(gabriel capture ls | grep '/api/me' | sed -n '2p' | awk '{print $1}')
 gabriel diff "$OLDER" "$NEWER"
@@ -173,7 +273,7 @@ gabriel diff "$OLDER" "$NEWER"
 **Pass:** `no differences`, having ignored the headers that change every time.
 Both ids are required; there is no "diff against the previous one" shorthand.
 
-## 8. Vault, curl, JWT
+## 10. Vault, curl, JWT
 
 ```sh
 gabriel vault set api_token "sk-live-EXAMPLE-1234567890"
@@ -185,7 +285,7 @@ gabriel jwt "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJleHAiOjE3MD
 **Pass:** `vault ls` prints `api_token` and no value. `jwt` decodes the claims,
 flags the token as expired, and says the signature is **not** verified.
 
-## 9. HAR round trip
+## 11. HAR round trip
 
 ```sh
 gabriel har export --out traffic.har
@@ -207,7 +307,7 @@ warning would not survive the file being attached to a ticket.
 Export also warns that the HAR contains credentials verbatim — that is
 deliberate and documented; a HAR is a faithful record of traffic.
 
-## 10. Run the collection, report to CI
+## 12. Run the collection, report to CI
 
 ```sh
 gabriel run --all --junit results.xml --html report.html
@@ -218,7 +318,7 @@ counts, and `report.html` opens in a browser. The starter `example` request
 will fail without network — that is a correct failure, and `run --all` should
 carry on past it rather than stopping.
 
-## 11. Diagnostics
+## 13. Diagnostics
 
 ```sh
 gabriel doctor
@@ -237,11 +337,10 @@ cat bundle/README.md
 **Pass:** a directory of text files, the session cookie absent, and a README
 listing what was deliberately left out.
 
-## 12. Clean up
+## 14. Clean up
 
 ```sh
-pkill -f origin.py
-pkill -f "gabriel capture"
+kill "$PROXY_PID" "$ORIGIN_PID"
 cd / && rm -rf /tmp/gabriel-manual
 ```
 

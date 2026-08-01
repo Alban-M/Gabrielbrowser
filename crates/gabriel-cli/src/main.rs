@@ -1554,7 +1554,10 @@ fn curl_command(args: CurlArgs, start_dir: &Path, style: &Style) -> Result<Outco
         );
     }
 
-    println!("{}", codegen::to_curl(&prepared, &redactor, !args.one_line));
+    println!(
+        "{}",
+        codegen::to_curl(&prepared, &redactor, !args.one_line, args.show_secrets)
+    );
     Ok(Outcome::Success)
 }
 
@@ -1716,7 +1719,13 @@ fn run_requests(args: RunArgs, start_dir: &Path, style: &Style) -> Result<Outcom
                     .with_context(|| format!("preparing `{}`", entry.id))?
             };
             let redactor = redactor_for(resolver.used_secrets(), args.show_secrets);
-            output::print_dry_run(&prepared, &spec.effect(), style, &redactor);
+            output::print_dry_run(
+                &prepared,
+                &spec.effect(),
+                style,
+                &redactor,
+                args.show_secrets,
+            );
             continue;
         }
 

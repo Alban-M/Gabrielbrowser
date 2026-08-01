@@ -739,6 +739,7 @@ pub fn print_dry_run(
     effect: &gabriel_core::model::Effect,
     style: &Style,
     redactor: &Redactor,
+    show_secrets: bool,
 ) {
     println!(
         "{} {} {}",
@@ -752,7 +753,12 @@ pub fn print_dry_run(
         println!(
             "  {}: {}",
             style.dim(name),
-            style.safe(&redactor.apply(value))
+            style.safe(&gabriel_core::vars::header_for_display(
+                name,
+                value,
+                redactor,
+                show_secrets
+            ))
         );
     }
     if let Some(body) = &request.body {

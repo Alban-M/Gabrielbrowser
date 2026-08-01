@@ -62,6 +62,9 @@ answers exist, the release becomes 0.1.0.
   redirect.
 - Server-controlled text is escape-defused before printing, and escaped in
   reports.
+- Credential-carrying headers (`Authorization`, `Cookie`, and relatives) are
+  masked by name as well as by value, so a session cookie — which never passes
+  through the vault — is not printed by `gabriel curl` or `--dry-run`.
 - Replay is classified by effect: anything that changes state — including
   `PUT` and `DELETE`, whose first replay still lands — asks before running,
   `--dry-run` sends nothing, and `--yes` is the CI opt-in.
