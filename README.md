@@ -509,6 +509,19 @@ was taken — the port bound, the proxy was used, the file exists — before
 asserting anything about what came out of it. Otherwise the strongest-sounding
 assertion in a suite is the one testing least.
 
+The same trap has a second form: **a green suite says nothing about behaviour it
+does not exercise.** `test (windows-latest)` passed while every `stdout` write
+on Windows still panicked on a closed pipe, because the pipe cases lived only in
+the release smoke job. Seven of seven looked like evidence and was not. Where a
+behaviour is platform-specific, it belongs in the matrix that runs on every
+platform — the release path should prove the *release*, not be the only place a
+known behaviour is tested.
+
+When adding a check for a bug, disable the fix and watch the check fail before
+trusting it. The pipe check was verified that way: with `is_broken_pipe`
+returning `false` it reported `exited 101` and printed the panic; with the fix
+restored it passed.
+
 The installer has its own suite because it is a trust boundary — the one piece
 of software someone runs before they have any reason to trust it, usually piped
 straight into a shell. Both bugs it has had were invisible on the page and

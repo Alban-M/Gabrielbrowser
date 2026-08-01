@@ -48,6 +48,48 @@ jobs:
             | while IFS= read -r l; do echo "::error::$l"; done
           exit 1
 
+      # A reader that stops early is normal — `gabriel ls | head -1`,
+      # `run --quiet | jq`. Rust ignores SIGPIPE, so an unguarded CLI panics
+      # instead of ending quietly, and the errno differs by platform: Unix
+      # reports EPIPE, Windows reports one of several pipe errors. This runs on
+      # all three, because a fix verified on one proves nothing about the others
+      # — which is how it reached a release smoke job the first time.
+      - name: A closed reader ends the command quietly
+        shell: bash
+        run: |
+          set -uo pipefail
+          bin="$PWD/target/debug/gabriel"
+          [ -x "$bin" ] || bin="$PWD/target/debug/gabriel.exe"
+          [ -x "$bin" ] || { echo "::error::no gabriel binary in target/debug"; exit 1; }
+
+          work=$(mktemp -d)
+          cd "$work"
+          "$bin" init pipecheck >/dev/null 2>&1
+
+          fail=0
+          # `| true` closes the pipe before the first byte: the deterministic
+          # form of the race that `head -1` and `grep -q` win sometimes.
+          for cmd in "ls" "doctor" "env" "capture ls"; do
+            "$bin" $cmd 2>stderr.txt | true
+            rc=${PIPESTATUS[0]}
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::\`gabriel $cmd | true\` exited $rc, expected 0"
+              sed 's/^/::error::/' stderr.txt
+              fail=1
+            elif grep -qi "panicked" stderr.txt; then
+              echo "::error::\`gabriel $cmd | true\` panicked"
+              sed 's/^/::error::/' stderr.txt
+              fail=1
+            fi
+          done
+
+          "$bin" ls | head -1 >/dev/null
+          [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "::error::ls | head -1 exited ${PIPESTATUS[0]}"; fail=1; }
+          "$bin" doctor | grep -q collection
+          [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "::error::doctor | grep -q exited ${PIPESTATUS[0]}"; fail=1; }
+
+          exit "$fail"
+
       - name: Keep the output even when it failed
         if: failure()
         uses: actions/upload-artifact@v4
