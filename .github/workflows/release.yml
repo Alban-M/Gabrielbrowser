@@ -360,6 +360,19 @@ jobs:
           done
           ls -la *.sig *.pem
 
+      # The mirror job republishes these exact bytes, so it needs the
+      # signatures alongside the archives — and the build artifacts carry only
+      # the archives. Without this the mirror's own guard refuses, which is
+      # what happened the first time that job ever got to run. The guard was
+      # right; the signatures simply were not reachable from the job that
+      # needed them.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signatures
+          path: |
+            *.sig
+            *.pem
+
       # Release notes come from CHANGELOG.md rather than a commit list: the
       # commit list says what was touched, the changelog says what changed for
       # someone using it. A missing section fails the release rather than
