@@ -85,6 +85,26 @@ is vocabulary, not features.
 Record the exact words. Paraphrasing into the answer we wanted is how this test
 gets quietly failed.
 
+### Crossing it with the credential observation
+
+Two things are already being written down — whether they noticed the promoted
+file has no credential in it, and how they describe what they did. Together they
+say more than either alone, and they point at different fixes:
+
+| | **Said "saved a request"** | **Said "kept a real thing I can run again"** |
+| --- | --- | --- |
+| **Noticed the credential was gone** | **Naming problem.** They saw the mechanism and reached for the wrong noun. The word *promote* is doing no work, or the artifact still looks like a request to them. Fix the vocabulary. | Landed. |
+| **Never noticed** | **Staging problem.** The moment the product exists for went by unremarked. Fix when and how it is shown, not what it is called. | Unlikely, and worth investigating if it happens — they may be describing the intent they brought rather than what they saw. |
+
+The distinction matters because the two fixes are unrelated and expensive to
+confuse. Renaming things when the real fault is that nobody saw the moment
+produces a differently-worded product with the same problem.
+
+**"Saved a request" is the reading to watch hardest**, because it will arrive
+alongside every sign of success: they finished the task, liked it, and would
+recommend it. Adoption and comprehension are separable, and this is where they
+separate.
+
 ## Day 7
 
 Send this and nothing else. No reminders about features they did not use.
