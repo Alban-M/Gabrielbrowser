@@ -241,22 +241,35 @@ jobs:
           echo "bundle is clean"
           cd ..
 
+      # Job logs need admin rights even on a public repository, so a failure
+      # here is unreadable to whoever has to fix it — the last one reported
+      # only "exit code 101". Annotations are public, so the output is
+      # re-emitted as one.
       - name: A collection can be created and read back
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p smoke && cd smoke
-          gabriel init smoke-collection
-          gabriel ls | grep -q example
-          gabriel env | grep -q dev
-          gabriel doctor | grep -q "collection"
+          set -uo pipefail
+          (
+            set -e
+            mkdir -p smoke && cd smoke
+            gabriel init smoke-collection
+            gabriel ls | grep -q example
+            gabriel env | grep -q dev
+            gabriel doctor | grep -q "collection"
 
-          # A reader that stops before we finish writing. Rust ignores SIGPIPE,
-          # so an unguarded CLI panics here — which is exactly how this job
-          # failed once, on macOS, where the race went the other way.
-          gabriel ls | true
-          gabriel doctor | true
-          gabriel capture ls | true
+            # A reader that stops before we finish writing. Rust ignores
+            # SIGPIPE, so an unguarded CLI panics here — which is how this
+            # job failed once on macOS, where the race went the other way.
+            gabriel ls | true
+            gabriel doctor | true
+            gabriel capture ls | true
+          ) 2>&1 | tee step-output.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::collection step failed (exit $status)"
+            tail -20 step-output.txt | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
 
       - name: An offline request is generated and inspected
         shell: bash

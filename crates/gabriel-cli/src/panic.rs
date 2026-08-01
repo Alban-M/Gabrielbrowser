@@ -65,9 +65,20 @@ fn registered() -> Vec<String> {
 /// business. Reporting it as a bug is worse than useless: it prints a bug report
 /// about a pipeline working exactly as intended.
 fn is_broken_pipe(payload: &str) -> bool {
-    payload.contains("Broken pipe")
+    // Matched on the standard library's own prefix rather than on an errno,
+    // because the errno is not the same everywhere: Unix reports EPIPE
+    // ("Broken pipe", os error 32) and Windows reports one of several pipe
+    // errors with different numbers and English text. Matching the message
+    // would mean guessing at strings on a platform this machine cannot run.
+    //
+    // The broader condition is defensible on its own terms: if a write to
+    // stdout failed, Gabriel cannot talk to the user through it, and printing a
+    // bug report about that is noise on top of a failure the user can already
+    // see. The specific pipe wordings are kept as a second signal, and as a
+    // record of what this actually looks like.
+    payload.contains("failed printing to")
+        || payload.contains("Broken pipe")
         || payload.contains("os error 32")
-        || (payload.contains("failed printing to") && payload.contains("BrokenPipe"))
 }
 
 /// Install the hook. Called once, from `main`.
@@ -252,6 +263,20 @@ mod broken_pipe {
         assert!(is_broken_pipe(
             "failed printing to stdout: Broken pipe (os error 32)"
         ));
+    }
+
+    /// The Windows wordings, which this machine cannot produce. Included so the
+    /// condition is exercised for both platforms even though only one can be
+    /// observed here.
+    #[test]
+    fn the_windows_wordings_are_recognised_too() {
+        for msg in [
+            "failed printing to stdout: The pipe has been ended. (os error 109)",
+            "failed printing to stdout: The pipe is being closed. (os error 232)",
+            "failed printing to stderr: Broken pipe (os error 32)",
+        ] {
+            assert!(is_broken_pipe(msg), "{msg}");
+        }
     }
 
     #[test]
