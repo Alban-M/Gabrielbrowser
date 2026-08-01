@@ -407,6 +407,14 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 ./scripts/scan-secrets.sh README.md CHANGELOG.md docs/*.md
 ```
 
+**A tagged commit must contain the machinery required to publish itself.** A
+tag-triggered workflow runs the definition stored *at that tag*, so a release
+workflow fixed afterwards on `main` does not help the tag that needs it — and
+re-running the failed run replays the same broken definition. When the first
+release run failed on a bug in its own smoke job, the fix was to re-cut the tag
+at the commit carrying the repair, not to re-run the old one. The release
+workflow is part of the release, not scaffolding beside it.
+
 Before a release, walk [docs/manual-test.md](docs/manual-test.md) — ten minutes,
 no network needed, and it exercises the loop the automated suite can only test
 in pieces.

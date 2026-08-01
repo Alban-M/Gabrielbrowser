@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions follow [semver](https://semver.org);
 before 1.0 the file format and CLI may still change between minor versions.
 
-## v0.1.0-preview.1 — unreleased
+## v0.1.0-preview.1 — 2026-07-31
 
 First preview build. The loop works end to end and is tested against live
 servers.
