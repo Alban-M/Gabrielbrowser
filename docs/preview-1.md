@@ -57,6 +57,34 @@ Behaviour, which matters more than the timings:
 Do not demonstrate anything until the task ends or they give up. When it ends,
 then show what they missed and note the gap between the two.
 
+### The one question to ask at the end, and how to ask it
+
+When the task is over — not during — ask exactly this and write the answer down
+**verbatim**:
+
+> "A colleague walks over and asks what you just did. What do you tell them?"
+
+Never ask *"what does promote mean?"* That supplies the concept being tested.
+The question above makes them reach for their own words, which is the only
+version worth having.
+
+What the answer decides:
+
+| They say something like | Reading |
+| --- | --- |
+| "I saved a real thing that happened so I can run it again and trust it" | The category landed. This is the sentence the product is for. |
+| "I saved a request" | The category did not land. They have understood the artifact and missed the point — Gabriel is still an API client to them. |
+| "I recorded some traffic" | Promotion was invisible. They saw the capture and not the act. |
+
+The middle row is the dangerous one, because it looks like success. Someone who
+says *"saved a request"* will use Gabriel happily, describe it to colleagues as
+a Postman alternative, and never reach the thing that makes it different. If
+three of five land there, the interface is teaching the wrong noun and the fix
+is vocabulary, not features.
+
+Record the exact words. Paraphrasing into the answer we wanted is how this test
+gets quietly failed.
+
 ## Day 7
 
 Send this and nothing else. No reminders about features they did not use.
@@ -117,6 +145,7 @@ backlog with the observation that produced it attached.
 Preview 1 is finished when:
 
 - five people have completed the observed first session,
+- five verbatim answers to "what do you tell them?" are written down,
 - day-7 answers are in from all of them,
 - every install failure has a cause,
 - the OAuth interop table is filled in, and

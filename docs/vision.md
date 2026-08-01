@@ -91,9 +91,14 @@ moment in minute 4 when the user sees the credential **removed** and the replay
 **still works**. That is the sentence they repeat to a colleague, and it is the
 only thing Preview 1 needs to validate.
 
-**Falsifiable prediction, to be checked in Preview 1:** users will not notice
-the missing credential unprompted. If true, the product's central claim is
-invisible and the interface — not the engine — is the problem.
+**Two falsifiable predictions, checkable in a week.** Users will not notice the
+missing credential unprompted; and asked what they just did, they will say *"I
+saved a request"* rather than *"I kept a real thing that happened so I can run
+it again"*. The second is the more dangerous failure, because it looks like
+success: someone who says "saved a request" will use Gabriel happily, describe
+it to colleagues as a Postman alternative, and never reach what makes it
+different. If either holds, the interface is the problem rather than the
+engine.
 
 ---
 
