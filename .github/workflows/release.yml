@@ -395,19 +395,57 @@ jobs:
           echo "--- release notes ---"
           cat NOTES.md
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            gabriel-*.tar.gz
-            gabriel-*.zip
-            gabriel-*.sha256
-            gabriel-sbom.cdx.json
-            checksums.txt
-            *.sig
-            *.pem
-            install.sh
-          body_path: NOTES.md
-          prerelease: ${{ contains(github.ref_name, '-') }}
+      # Twenty-seven assets in one call failed with `Too many retries.` on two
+      # of three attempts, and the error never said which asset — the action
+      # retries the whole set and reports only that it gave up. Uploading one
+      # at a time with `--clobber` makes each attempt idempotent, so a retry
+      # resumes instead of restarting, and a failure can name the file. It is
+      # also the same mechanism the mirror job already uses, so the publish
+      # path is exercised twice per release rather than having a leg that only
+      # ever runs once.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          args=""
+          case "$GITHUB_REF_NAME" in *-*) args="--prerelease" ;; esac
+
+          gh release create "$GITHUB_REF_NAME" --repo "$REPO" \
+            --title "$GITHUB_REF_NAME" --notes-file NOTES.md $args \
+            || gh release edit "$GITHUB_REF_NAME" --repo "$REPO" --notes-file NOTES.md
+
+          assets=( gabriel-*.tar.gz gabriel-*.zip gabriel-*.sha256 \
+                   gabriel-sbom.cdx.json checksums.txt *.sig *.pem install.sh )
+          [ "${#assets[@]}" -gt 0 ] || { echo "::error::no assets to upload"; exit 1; }
+          echo "uploading ${#assets[@]} assets"
+
+          for asset in "${assets[@]}"; do
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$GITHUB_REF_NAME" "$asset" --repo "$REPO" --clobber; then
+                echo "ok   $asset"
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "::error::failed to upload $asset after 5 attempts"
+                exit 1
+              fi
+              sleep $(( attempt * 5 ))
+            done
+          done
+
+          # A release missing assets is worse than one that failed loudly: the
+          # advertised install command 404s and the user blames their machine.
+          published=$(gh release view "$GITHUB_REF_NAME" --repo "$REPO" \
+            --json assets --jq '.assets | length')
+          if [ "$published" -ne "${#assets[@]}" ]; then
+            echo "::error::uploaded ${#assets[@]} assets but the release lists $published"
+            exit 1
+          fi
+          echo "release carries $published assets"
 
   # ── publishing to the public releases repository ────────────────────────────
   #
