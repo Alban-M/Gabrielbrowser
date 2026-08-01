@@ -424,6 +424,28 @@ release run failed on a bug in its own smoke job, the fix was to re-cut the tag
 at the commit carrying the repair, not to re-run the old one. The release
 workflow is part of the release, not scaffolding beside it.
 
+**Tags are immutable — with one narrow exception.** Moving a tag breaks
+anything that pinned it, so the default is that a cut tag stays cut and the fix
+goes in the next one. The exception is a security defect that is already fixed
+and has not yet reached anybody:
+
+- nothing external references the tag — *verified*, not assumed: no release on
+  the public mirror, and the tag page returns 404 to an anonymous request;
+- the defect is a trust defect rather than an ordinary bug — a credential
+  reaching somewhere it should not;
+- the fix already exists and CI is green on the commit carrying it.
+
+All three, or the tag stands. `v0.1.0-preview.1` was re-cut once under this
+rule: the tagged artifacts printed session cookies from `gabriel curl` and
+`--dry-run`, the fix had landed, and the mirror had zero releases. Shipping a
+preview with a known credential leak on the two surfaces built to be pasted
+would have broken the claim the product is for, and no one was depending on the
+old tag to be stable.
+
+The narrowness is the point. "Not yet distributed and a fixed credential leak"
+is a different situation from "we thought of something better", and only the
+first one moves a tag.
+
 Before a release, walk [docs/manual-test.md](docs/manual-test.md) — ten minutes,
 no network needed, and it exercises the loop the automated suite can only test
 in pieces.
