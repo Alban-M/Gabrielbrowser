@@ -542,9 +542,21 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// Does replaying this change the target?
+    ///
+    /// The axis that matters for a replay tool is *does this alter state*, not
+    /// *is it repeatable*. Idempotence is a property of the second call; the
+    /// first `DELETE /customers/123` still deletes the customer, and a `PUT`
+    /// still overwrites whatever was there. Treating idempotent as safe would
+    /// let a replay quietly destroy production state, which is the failure this
+    /// whole model exists to prevent.
+    pub fn changes_state(self) -> bool {
+        !matches!(self, Effect::Read)
+    }
+
     /// Does replaying this need the user to say so?
     pub fn needs_confirmation(self) -> bool {
-        matches!(self, Effect::Unsafe | Effect::Unknown)
+        self.changes_state()
     }
 
     pub fn as_str(self) -> &'static str {
@@ -560,7 +572,9 @@ impl Effect {
     pub fn consequence(self) -> &'static str {
         match self {
             Effect::Read => "reads only; safe to repeat",
-            Effect::Idempotent => "changes state, but repeating it changes nothing further",
+            Effect::Idempotent => {
+                "changes the target — repeating it is stable, but the first one still lands"
+            }
             Effect::Unsafe => "performs the action again — a second one",
             Effect::Unknown => "has no defined semantics, so it is treated as unrepeatable",
         }
@@ -603,14 +617,30 @@ mod effect_tests {
         }
     }
 
-    /// PUT and DELETE change the world, but doing them twice leaves it where
-    /// doing them once did — so a replay is recoverable in a way a second POST
-    /// is not.
+    /// Idempotent is not safe, and this is the distinction it is easy to get
+    /// wrong: idempotence describes the *second* call. The first replay of
+    /// `DELETE /customers/123` still deletes the customer and the first `PUT`
+    /// still overwrites production config. Only a read runs unannounced.
     #[test]
-    fn put_and_delete_are_idempotent_not_safe() {
+    fn idempotent_is_not_safe() {
         assert_eq!(effect_of_method("PUT"), Effect::Idempotent);
         assert_eq!(effect_of_method("DELETE"), Effect::Idempotent);
-        assert!(!Effect::Idempotent.needs_confirmation());
+
+        assert!(Effect::Idempotent.changes_state());
+        assert!(
+            Effect::Idempotent.needs_confirmation(),
+            "a replayed DELETE would have deleted something without asking"
+        );
+    }
+
+    #[test]
+    fn only_a_read_runs_unannounced() {
+        assert!(!Effect::Read.changes_state());
+        assert!(!Effect::Read.needs_confirmation());
+        for e in [Effect::Idempotent, Effect::Unsafe, Effect::Unknown] {
+            assert!(e.changes_state(), "{e:?}");
+            assert!(e.needs_confirmation(), "{e:?}");
+        }
     }
 
     #[test]

@@ -62,8 +62,9 @@ answers exist, the release becomes 0.1.0.
   redirect.
 - Server-controlled text is escape-defused before printing, and escaped in
   reports.
-- Replay is classified by effect: a request that performs an action asks before
-  repeating it, `--dry-run` sends nothing, and `--yes` is the CI opt-in.
+- Replay is classified by effect: anything that changes state — including
+  `PUT` and `DELETE`, whose first replay still lands — asks before running,
+  `--dry-run` sends nothing, and `--yes` is the CI opt-in.
 - Request paths cannot escape the collection, and what counts as an absolute
   path is the same answer on every platform rather than the host's opinion.
 - Runtime files (vault, sessions, captures, CA key) are `0600` on Unix.

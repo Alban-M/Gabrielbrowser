@@ -299,9 +299,15 @@ not mechanically decidable, so it is enforced by whoever reads the diff.
 
 **Replay is bounded by what it does to the world.** Replaying a `GET` is free;
 replaying a payment charges the card twice. Gabriel classifies every request by
-RFC 9110 method semantics — read, idempotent, unsafe — and one that performs an
-action asks before repeating it, says what repeating means, and refuses rather
-than guessing where there is no terminal to ask at. `--dry-run` resolves
+RFC 9110 method semantics and asks before running anything that changes state.
+
+The axis is *does this alter the target*, not *is it repeatable* — because
+idempotence describes the **second** call. The first replay of
+`DELETE /customers/123` still deletes the customer, and the first `PUT` still
+overwrites production config. So only a read runs unannounced; `PUT` and
+`DELETE` are announced as stable-on-repeat but landing the first time, and
+`POST`/`PATCH` as performing the action again. Gabriel refuses rather than
+guessing where there is no terminal to ask at. `--dry-run` resolves
 everything and sends nothing. `--yes` is the explicit opt-in, which is the right
 shape for CI: a config that says `--yes` is a reviewable decision, whereas a
 prompt nobody can answer is a hung build.

@@ -184,7 +184,8 @@ So the safety model comes before the breadth:
 
 - **Classify every operation** — read, idempotent write, non-idempotent — from
   protocol and method semantics where knowable, and **explicitly unknown** where
-  not.
+  not. The line that matters is *changes state* rather than *is repeatable*:
+  idempotence describes the second call, and the first `DELETE` still deletes.
 - **A behaviour inherits the most dangerous classification it contains.** One
   non-idempotent request makes the whole behaviour non-idempotent, or a
   safe-sounding name conceals a charge. This is the replay counterpart to the
