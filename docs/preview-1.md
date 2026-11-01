@@ -32,6 +32,10 @@ Opening line, verbatim, and nothing more:
 
 ### What to write down
 
+Use [observation-sheet.md](observation-sheet.md) — one per participant, with
+these fields already laid out. Fixed boxes rather than free prose, because five
+sheets with the same fields can be compared and five pages of notes cannot.
+
 Timings, because these are the metrics that would otherwise need telemetry:
 
 | Measure | Start | Stop |

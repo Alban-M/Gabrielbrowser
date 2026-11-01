@@ -456,15 +456,48 @@ first one moves a tag.
   fails, nothing is published, and the tag names something that can never exist
   as artifacts.
 
-`v0.1.0-preview.1` was re-cut twice, once on each. First for the credential
-leak. Then again because every `stdout` write panicked on a closed pipe, which
-failed the stranger-install smoke step and left both publish jobs skipped — a
-broken pipe is an ordinary bug rather than a trust leak, so the security
-exception did not apply and did not need to. Reaching for it would have stretched
-a rule that was written to resist exactly that.
+`v0.1.0-preview.1` was re-cut four times: once on the security exception, three
+times on publishability. First for the credential leak. Then because every
+`stdout` write panicked on a closed pipe, which failed the stranger-install
+smoke step and left both publish jobs skipped — a broken pipe is an ordinary bug
+rather than a trust leak, so the security exception did not apply and did not
+need to. Then because the pipe fix had only ever been exercised on one platform.
+Then because the mirror job could not see the signatures its own guard required.
+
+Four is more than it should have been, and the shape of the overrun is worth
+naming: each move was justified, and each one was discovered only by running the
+thing. Reaching for the security exception instead would have stretched a rule
+written to resist exactly that.
 
 Publishability is the more general of the two, and probably the one to reach for
 first.
+
+**A skipped job is not a passing job.** The job that publishes to the public
+mirror was skipped on every release attempt before the last one — first for a
+missing token, then because the job it depended on had failed. The first time it
+actually executed, its own *refuse to publish anything unsigned* step stopped
+the publish: signatures are produced in the release job and sent straight to the
+release, while the mirror downloads build artifacts, which never contained them.
+The guard was right and the wiring was wrong, and neither fact was discoverable
+while the job kept not running. Four green releases in a row had said nothing
+about it.
+
+**Re-running is a diagnostic, not a fix.** Asset upload failed on two of three
+attempts with `Too many retries.`, and both re-runs succeeded. That is enough to
+know the step is unreliable and not enough to know why, because the message
+names neither the asset nor the reason — the action retries the whole set and
+reports only that it gave up. An error that forces you to run the thing again in
+order to learn anything is a defect in the error, not just in the step. It was
+replaced with a per-asset upload that is idempotent on retry and can name the
+file it failed on.
+
+**What ships untested gets written down, not assumed.** Two of the five targets
+are cross-built with no runner that can execute them, so the smoke job covers
+three and the release ships five. That is a real gap, and the honest form of it
+is a comment in the workflow naming the two rather than a green check implying
+five. The first execution of `x86_64-apple-darwin` anywhere was a manual install
+after the release was already public; `aarch64-unknown-linux-gnu` still has not
+run. Both facts are cheaper to state than to discover from a preview user.
 
 Before a release, walk [docs/manual-test.md](docs/manual-test.md) — ten minutes,
 no network needed, and it exercises the loop the automated suite can only test
