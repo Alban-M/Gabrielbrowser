@@ -31,7 +31,7 @@ machine was print `zsh: command not found: gabriel` five times.
 cargo build --release
 mkdir -p ~/.local/bin
 install -m 755 target/release/gabriel ~/.local/bin/gabriel
-gabriel --version                     # expect: gabriel 0.1.0-preview.1
+gabriel --version                     # expect: gabriel 0.1.0-preview.2
 ```
 
 If `~/.local/bin` is not on your PATH, either add it or use

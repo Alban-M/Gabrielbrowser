@@ -3,6 +3,49 @@
 Notable changes, newest first. Versions follow [semver](https://semver.org);
 before 1.0 the file format and CLI may still change between minor versions.
 
+## v0.1.0-preview.2 — 2026-10-31
+
+A security refresh of preview.1. **No functional change**: the CLI is still
+frozen, no flag, file format or behaviour moved, and a collection written by
+preview.1 works unchanged.
+
+Ninety-one days passed between the two cuts. Nothing in the dependency tree
+moved in that time; the advisory database did, and fourteen vulnerabilities
+accumulated against versions that were current when preview.1 was built. Four
+of them sit on surfaces this project makes claims about:
+
+- **TLS session secrets could reach a debug output.** `rustls` `Debug` impls for
+  client session values printed secret material. Gabriel asserts that no secret
+  reaches any output surface and tests every one against canaries — but the
+  canaries are Gabriel's own values, so a dependency printing TLS secrets is the
+  one shape of that defect the suite cannot see. Fixed upstream in 0.23.46.
+- **Certificate verification could accept distrusted intermediates.**
+  `rustls-webpki` and both bundled root sets trusted intermediates that had been
+  distrusted. Gabriel is an interception proxy, so upstream verification is what
+  stands between a captured request and a forged one.
+- **An unauthenticated `ServerHello` could downgrade later connections** to
+  classical key exchange, and **Brotli certificate decompression could allocate
+  up to 1 GiB before authentication**.
+- **The vault's cipher crate had been yanked.** `chacha20` 0.10.1 — the vault is
+  XChaCha20-Poly1305.
+
+Also cleared: TLS 1.3 handshake messages accepted across encryption-level
+boundaries, non-constant-time mask generation and `u128` comparisons in
+`ctutils`, unbounded empty `DATA` frames in `h2`, and five `quinn-proto`
+advisories covering zero-length frame panics, unbounded connection-ID
+retirement and a bypassable reassembly guard.
+
+Every fix was available within the versions the manifest already allowed, so no
+dependency requirement changed — only the lock file. If you built preview.1 from
+source yourself, `cargo update` gets you the same result.
+
+### Why you did not hear about this from Gabriel
+
+You did not, and you would not have. There is no telemetry, no update check and
+no callback of any kind, which means a stale install stays stale silently. That
+is the deliberate trade and this release is what the other side of it costs:
+checking is your move to make, and `cargo audit` on the source tree is how.
+
 ## v0.1.0-preview.1 — 2026-07-31
 
 First preview build. The loop works end to end and is tested against live
